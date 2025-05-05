@@ -5,8 +5,9 @@ import {
     BlobWriter,
     TextWriter,
     Entry,
-    EntryGetDataOptions,
     Writer,
+    GetDataOptions,
+    ZipReaderOptions,
 } from "@zip.js/zip.js";
 import { FastbootDevice, FastbootError, ReconnectCallback } from "./fastboot";
 
@@ -71,7 +72,7 @@ const USERDATA_ERASE_TIME = 1000; // ms
 async function zipGetData(
     entry: Entry,
     writer: Writer,
-    options?: EntryGetDataOptions,
+    options?: GetDataOptions | ZipReaderOptions
 ) {
     try {
         return await entry.getData!(writer, options);

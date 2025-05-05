@@ -9,14 +9,15 @@ var DebugLevel;
     DebugLevel[DebugLevel["Verbose"] = 2] = "Verbose";
 })(DebugLevel || (DebugLevel = {}));
 let debugLevel = DebugLevel.Silent;
+let debugLogger = console.log;
 function logDebug(...data) {
     if (debugLevel >= 1) {
-        console.log(...data);
+        debugLogger(...data);
     }
 }
 function logVerbose(...data) {
     if (debugLevel >= 2) {
-        console.log(...data);
+        debugLogger(...data);
     }
 }
 /**
@@ -29,6 +30,14 @@ function logVerbose(...data) {
  */
 function setDebugLevel(level) {
     debugLevel = level;
+}
+/**
+ * Change the debug logger function for the fastboot client.
+ *
+ * @param {DebugLogger} logger - Debug logger function to use.
+ */
+function setDebugLogger(logger) {
+    debugLogger = logger;
 }
 /**
  * Reads all of the data in the given blob and returns it as an ArrayBuffer.
@@ -8739,4 +8748,5 @@ exports.USER_ACTION_MAP = USER_ACTION_MAP;
 exports.UsbError = UsbError;
 exports.configureZip = configure;
 exports.setDebugLevel = setDebugLevel;
+exports.setDebugLogger = setDebugLogger;
 //# sourceMappingURL=fastboot.cjs.map

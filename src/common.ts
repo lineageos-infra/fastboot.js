@@ -6,17 +6,20 @@ export enum DebugLevel {
     Verbose,
 }
 
+export type DebugLogger = (...data: any[]) => void;
+
 let debugLevel = DebugLevel.Silent;
+let debugLogger = console.log;
 
 export function logDebug(...data: any[]) {
     if (debugLevel >= 1) {
-        console.log(...data);
+        debugLogger(...data);
     }
 }
 
 export function logVerbose(...data: any[]) {
     if (debugLevel >= 2) {
-        console.log(...data);
+        debugLogger(...data);
     }
 }
 
@@ -30,6 +33,15 @@ export function logVerbose(...data: any[]) {
  */
 export function setDebugLevel(level: DebugLevel) {
     debugLevel = level;
+}
+
+/**
+ * Change the debug logger function for the fastboot client.
+ *
+ * @param {DebugLogger} logger - Debug logger function to use.
+ */
+export function setDebugLogger(logger: DebugLogger) {
+    debugLogger = logger;
 }
 
 /**

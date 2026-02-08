@@ -22,12 +22,13 @@
     },
     "scripts": {
         "doc": "jsdoc -c jsdoc.json",
-        "build": "rollup -c"
+        "build": "rollup -c && tsc"
     },
     "files": [
         "dist/fastboot.*"
     ],
     "exports": {
+        "types": "./dist/index.d.ts",
         "import": "./dist/fastboot.mjs",
         "require": "./dist/fastboot.cjs",
         "default": "./dist/fastboot.cjs"

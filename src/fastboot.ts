@@ -219,27 +219,15 @@ export class FastbootDevice {
      * @throws {UsbError}
      */
     async connect() {
-        let devices = await navigator.usb.getDevices();
-        common.logDebug("Found paired USB devices:", devices);
-        if (devices.length === 1) {
-            this.device = devices[0];
-        } else {
-            // If multiple paired devices are connected, request the user to
-            // select a specific one to reduce ambiguity. This is also necessary
-            // if no devices are already paired, i.e. first use.
-            common.logDebug(
-                "No or multiple paired devices are connected, requesting one"
-            );
-            this.device = await navigator.usb.requestDevice({
-                filters: [
-                    {
-                        classCode: FASTBOOT_USB_CLASS,
-                        subclassCode: FASTBOOT_USB_SUBCLASS,
-                        protocolCode: FASTBOOT_USB_PROTOCOL,
-                    },
-                ],
-            });
-        }
+        this.device = await navigator.usb.requestDevice({
+            filters: [
+                {
+                    classCode: FASTBOOT_USB_CLASS,
+                    subclassCode: FASTBOOT_USB_SUBCLASS,
+                    protocolCode: FASTBOOT_USB_PROTOCOL,
+                },
+            ],
+        });
         common.logDebug("Using USB device:", this.device);
 
         if (!this._registeredUsbListeners) {

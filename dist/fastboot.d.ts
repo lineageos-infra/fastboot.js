@@ -169,6 +169,20 @@ export declare class FastbootDevice {
      */
     flashFactoryZip(blob: Blob, wipe: boolean, onReconnect: ReconnectCallback, onProgress?: FactoryProgressCallback): Promise<void>;
     /**
+     * Wipe the super partition by flashing a minimal sparse image derived from
+     * the LP metadata in the given super_empty.img Blob.  This erases all logical
+     * partition data and resets the partition table to the empty layout encoded
+     * in the image.
+     *
+     * The device must be in the bootloader (not fastbootd) when this is called.
+     *
+     * @param {Blob} blob - Blob containing super_empty.img.
+     * @param {string} slot - The slot to target ("current", "a", or "b").
+     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+     * @throws {FastbootError}
+     */
+    wipeSuper(blob: Blob, slot?: string, onProgress?: FlashProgressCallback): Promise<void>;
+    /**
      * Determine the other slot
      * Hardcoded for A/B currently as that's what we mostly have in the field
      *

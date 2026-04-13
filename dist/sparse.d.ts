@@ -28,6 +28,7 @@ export interface SparseChunk {
  * @returns {SparseHeader} Object containing the header information.
  */
 export declare function parseFileHeader(buffer: ArrayBuffer): SparseHeader | null;
+export declare function createImage(header: SparseHeader, chunks: Array<SparseChunk>): Promise<Blob>;
 /**
  * Creates a sparse image from buffer containing raw image data.
  *

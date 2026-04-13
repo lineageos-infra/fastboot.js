@@ -14,6 +14,12 @@ export declare class ImageError extends Error {
     constructor(message: string);
 }
 /**
+ * Exception class for logical partition parsing errors.
+ */
+export declare class LpError extends Error {
+    constructor(message: string);
+}
+/**
  * Exception class for operations that exceeded their timeout duration.
  */
 export declare class TimeoutError extends Error {

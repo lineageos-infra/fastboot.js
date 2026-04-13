@@ -1,4 +1,4 @@
-import { FastbootDevice, ReconnectCallback } from "./fastboot";
+import type { FastbootDevice, ReconnectCallback } from "./fastboot";
 /**
  * Callback for factory image flashing progress.
  *

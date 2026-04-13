@@ -1,7 +1,4 @@
 export declare const FILE_HEADER_SIZE = 28;
-export declare class ImageError extends Error {
-    constructor(message: string);
-}
 export interface SparseSplit {
     data: ArrayBuffer;
     bytes: number;

@@ -1,4 +1,5 @@
 import * as common from "./common";
+import { ImageError } from "./errors";
 
 const FILE_MAGIC = 0xed26ff3a;
 
@@ -9,13 +10,6 @@ const CHUNK_HEADER_SIZE = 12;
 
 // AOSP libsparse uses 64 MiB chunks
 const RAW_CHUNK_SIZE = 64 * 1024 * 1024;
-
-export class ImageError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "ImageError";
-    }
-}
 
 export interface SparseSplit {
     data: ArrayBuffer;

@@ -1,19 +1,4 @@
 import { FactoryProgressCallback } from "./factory";
-/**
- * Exception class for USB errors not directly thrown by WebUSB.
- */
-export declare class UsbError extends Error {
-    constructor(message: string);
-}
-/**
- * Exception class for errors returned by the bootloader, as well as high-level
- * fastboot errors resulting from bootloader responses.
- */
-export declare class FastbootError extends Error {
-    status: string;
-    bootloaderMessage: string;
-    constructor(status: string, message: string);
-}
 interface CommandResponse {
     text: string;
     dataSize?: string;

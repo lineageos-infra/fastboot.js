@@ -1,3 +1,44 @@
+/**
+ * Exception class for errors returned by the bootloader, as well as high-level
+ * fastboot errors resulting from bootloader responses.
+ */
+class FastbootError extends Error {
+    constructor(status, message) {
+        super(`Bootloader replied with ${status}: ${message}`);
+        this.status = status;
+        this.bootloaderMessage = message;
+        this.name = "FastbootError";
+    }
+}
+/**
+ * Exception class for Sparse Image errors.
+ */
+class ImageError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "ImageError";
+    }
+}
+/**
+ * Exception class for operations that exceeded their timeout duration.
+ */
+class TimeoutError extends Error {
+    constructor(timeout) {
+        super(`Timeout of ${timeout} ms exceeded`);
+        this.name = "TimeoutError";
+        this.timeout = timeout;
+    }
+}
+/**
+ * Exception class for USB errors not directly thrown by WebUSB.
+ */
+class UsbError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "UsbError";
+    }
+}
+
 var DebugLevel;
 (function (DebugLevel) {
     DebugLevel[DebugLevel["Silent"] = 0] = "Silent";
@@ -78,14 +119,6 @@ async function runWithTimedProgress(onProgress, action, item, duration, workProm
     await workPromise;
     onProgress(action, item, 1.0);
 }
-/** Exception class for operations that exceeded their timeout duration. */
-class TimeoutError extends Error {
-    constructor(timeout) {
-        super(`Timeout of ${timeout} ms exceeded`);
-        this.name = "TimeoutError";
-        this.timeout = timeout;
-    }
-}
 function runWithTimeout(promise, timeout) {
     return new Promise((resolve, reject) => {
         // Set up timeout
@@ -122,12 +155,6 @@ const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
 // AOSP libsparse uses 64 MiB chunks
 const RAW_CHUNK_SIZE = 64 * 1024 * 1024;
-class ImageError extends Error {
-    constructor(message) {
-        super(message);
-        this.name = "ImageError";
-    }
-}
 var ChunkType;
 (function (ChunkType) {
     ChunkType[ChunkType["Raw"] = 51905] = "Raw";
@@ -6452,27 +6479,6 @@ const DEFAULT_DOWNLOAD_SIZE = 512 * 1024 * 1024; // 512 MiB
 const MAX_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1 GiB
 const GETVAR_TIMEOUT = 10000; // ms
 /**
- * Exception class for USB errors not directly thrown by WebUSB.
- */
-class UsbError extends Error {
-    constructor(message) {
-        super(message);
-        this.name = "UsbError";
-    }
-}
-/**
- * Exception class for errors returned by the bootloader, as well as high-level
- * fastboot errors resulting from bootloader responses.
- */
-class FastbootError extends Error {
-    constructor(status, message) {
-        super(`Bootloader replied with ${status}: ${message}`);
-        this.status = status;
-        this.bootloaderMessage = message;
-        this.name = "FastbootError";
-    }
-}
-/**
  * This class is a client for executing fastboot commands and operations on a
  * device connected over USB.
  */
@@ -6968,5 +6974,5 @@ class FastbootDevice {
     }
 }
 
-export { FastbootDevice, FastbootError, TimeoutError, USER_ACTION_MAP, UsbError, configure as configureZip, setDebugLevel, setDebugLogger };
+export { FastbootDevice, FastbootError, ImageError, TimeoutError, USER_ACTION_MAP, UsbError, configure as configureZip, setDebugLevel, setDebugLogger };
 //# sourceMappingURL=fastboot.mjs.map

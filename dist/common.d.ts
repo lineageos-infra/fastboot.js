@@ -31,10 +31,5 @@ export declare function setDebugLogger(logger: DebugLogger): void;
  */
 export declare function readBlobAsBuffer(blob: Blob): Promise<ArrayBuffer>;
 export declare function runWithTimedProgress<T>(onProgress: FactoryProgressCallback, action: string, item: string, duration: number, workPromise: Promise<T>): Promise<void>;
-/** Exception class for operations that exceeded their timeout duration. */
-export declare class TimeoutError extends Error {
-    timeout: number;
-    constructor(timeout: number);
-}
 export declare function runWithTimeout<T>(promise: Promise<T>, timeout: number): Promise<T>;
 //# sourceMappingURL=common.d.ts.map

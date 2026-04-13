@@ -1,3 +1,4 @@
+import { TimeoutError } from "./errors";
 import { FactoryProgressCallback } from "./factory";
 
 export enum DebugLevel {
@@ -99,17 +100,6 @@ export async function runWithTimedProgress<T>(
     await workPromise;
 
     onProgress(action, item, 1.0);
-}
-
-/** Exception class for operations that exceeded their timeout duration. */
-export class TimeoutError extends Error {
-    timeout: number;
-
-    constructor(timeout: number) {
-        super(`Timeout of ${timeout} ms exceeded`);
-        this.name = "TimeoutError";
-        this.timeout = timeout;
-    }
 }
 
 export function runWithTimeout<T>(

@@ -1,5 +1,6 @@
 import * as Sparse from "./sparse";
 import * as common from "./common";
+import { FastbootError, UsbError } from "./errors";
 import {
     FactoryProgressCallback,
     flashZip as flashFactoryZip,
@@ -17,32 +18,6 @@ const DEFAULT_DOWNLOAD_SIZE = 512 * 1024 * 1024; // 512 MiB
 const MAX_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1 GiB
 
 const GETVAR_TIMEOUT = 10000; // ms
-
-/**
- * Exception class for USB errors not directly thrown by WebUSB.
- */
-export class UsbError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "UsbError";
-    }
-}
-
-/**
- * Exception class for errors returned by the bootloader, as well as high-level
- * fastboot errors resulting from bootloader responses.
- */
-export class FastbootError extends Error {
-    status: string;
-    bootloaderMessage: string;
-
-    constructor(status: string, message: string) {
-        super(`Bootloader replied with ${status}: ${message}`);
-        this.status = status;
-        this.bootloaderMessage = message;
-        this.name = "FastbootError";
-    }
-}
 
 interface CommandResponse {
     text: string;

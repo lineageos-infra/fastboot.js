@@ -1,4 +1,5 @@
 import * as common from "./common";
+import { FastbootError } from "./errors";
 import {
     ZipReader,
     BlobReader,
@@ -9,7 +10,7 @@ import {
     WritableWriter,
     ZipReaderOptions,
 } from "@zip.js/zip.js";
-import { FastbootDevice, FastbootError, ReconnectCallback } from "./fastboot";
+import type { FastbootDevice, ReconnectCallback } from "./fastboot";
 
 /**
  * Callback for factory image flashing progress.

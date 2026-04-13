@@ -25,6 +25,16 @@ export class ImageError extends Error {
 }
 
 /**
+ * Exception class for logical partition parsing errors.
+ */
+export class LpError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "LpError";
+    }
+}
+
+/**
  * Exception class for operations that exceeded their timeout duration.
  */
 export class TimeoutError extends Error {

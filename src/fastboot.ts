@@ -1,4 +1,5 @@
 import * as Sparse from "./sparse";
+import * as Lp from "./lp";
 import * as common from "./common";
 import { FastbootError, UsbError } from "./errors";
 import {
@@ -637,6 +638,78 @@ export class FastbootDevice {
         onProgress: FactoryProgressCallback = (_progress) => {}
     ) {
         return await flashFactoryZip(this, blob, wipe, onReconnect, onProgress);
+    }
+
+    /**
+     * Wipe the super partition by flashing a minimal sparse image derived from
+     * the LP metadata in the given super_empty.img Blob.  This erases all logical
+     * partition data and resets the partition table to the empty layout encoded
+     * in the image.
+     *
+     * The device must be in the bootloader (not fastbootd) when this is called.
+     *
+     * @param {Blob} blob - Blob containing super_empty.img.
+     * @param {string} slot - The slot to target ("current", "a", or "b").
+     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+     * @throws {FastbootError}
+     */
+    async wipeSuper(
+        blob: Blob,
+        slot: string = "current",
+        onProgress: FlashProgressCallback = (_progress) => {},
+    ) {
+        const metadata = await Lp.readFromImageBlob(blob);
+
+        // Resolve slot
+        let resolvedSlot = slot;
+        if (slot === "current") {
+            resolvedSlot = (await this.getVariable("current-slot")) ?? "a";
+        } else if (slot === "other") {
+            resolvedSlot = await this.getOtherSlot();
+        }
+        common.logDebug(`Targeting slot "${resolvedSlot}"`);
+
+        const images = await Lp.buildWipeSuperImages(metadata);
+
+        // For retrofit devices the primary block device is not named "super".
+        // Fastboot sends "oem allow-flash-super" to allow flashing.
+        const superDevice = Lp.getMetadataSuperBlockDevice(metadata);
+        if (
+            superDevice !== null &&
+            Lp.getBlockDevicePartitionName(superDevice) !== "super"
+        ) {
+            try {
+                await this.runCommand("oem allow-flash-super");
+            } catch {
+                // Not all bootloaders support this command
+            }
+        }
+
+        for (const image of images) {
+            let flashPartition = image.partitionName;
+
+            // Always query has-slot, even when the metadata flag requests slot-suffixing.
+            // This matches AOSP do_for_partition: respect the device's own answer for
+            // has-slot and only warn when force_slot is set but the partition has no slots.
+            const hasSlot = await this.getVariable(
+                `has-slot:${image.partitionName}`,
+            );
+            if (hasSlot === "yes") {
+                flashPartition = `${image.partitionName}_${resolvedSlot}`;
+            } else if (image.forceSlot) {
+                common.logDebug(
+                    `Warning: ${image.partitionName} does not support slots but slot suffix was requested`,
+                );
+            }
+
+            common.logDebug(
+                `Flashing ${image.data.byteLength} bytes to "${flashPartition}"`,
+            );
+            await this.upload(flashPartition, image.data, onProgress);
+            await this.runCommand(`flash:${flashPartition}`);
+        }
+
+        common.logDebug("Wipe super Done");
     }
 
     /**

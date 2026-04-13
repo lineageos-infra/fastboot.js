@@ -135,7 +135,7 @@ function calcChunksSize(chunks: Array<SparseChunk>) {
     return overhead + calcChunksDataSize(chunks);
 }
 
-async function createImage(header: SparseHeader, chunks: Array<SparseChunk>): Promise<Blob> {
+export async function createImage(header: SparseHeader, chunks: Array<SparseChunk>): Promise<Blob> {
     let blobBuilder = new BlobBuilder();
 
     let buffer = new ArrayBuffer(FILE_HEADER_SIZE);

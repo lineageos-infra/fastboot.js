@@ -102,7 +102,13 @@ export class FastbootDevice {
         this.epIn = null;
         this.epOut = null;
         for (let endpoint of ife.endpoints) {
-            common.logVerbose("Checking endpoint:", endpoint);
+            common.logVerbose(
+                `Checking endpoint: ` +
+                `endpointNumber=${endpoint.endpointNumber}, ` +
+                `direction=${endpoint.direction}, ` +
+                `type=${endpoint.type}, ` +
+                `packetSize=${endpoint.packetSize}`,
+            );
             if (endpoint.type !== "bulk") {
                 throw new UsbError("Interface endpoint is not bulk");
             }
@@ -121,7 +127,7 @@ export class FastbootDevice {
                 }
             }
         }
-        common.logVerbose("Endpoints: in =", this.epIn, ", out =", this.epOut);
+        common.logVerbose(`Endpoints: in=${this.epIn}, out=${this.epOut}`);
 
         try {
             await this.device!.open();

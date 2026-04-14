@@ -12,7 +12,8 @@
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
-        "moduleResolution": "node"
+        "moduleResolution": "bundler",
+        "types": ["@types/w3c-web-usb"]
     },
     "include": ["./src/**/*"]
 }

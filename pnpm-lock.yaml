@@ -20,7 +20,7 @@ importers:
         version: 1.0.0(rollup@4.60.1)
       '@rollup/plugin-typescript':
         specifier: ^12.3.0
-        version: 12.3.0(rollup@4.60.1)(tslib@2.8.1)(typescript@4.9.5)
+        version: 12.3.0(rollup@4.60.1)(tslib@2.8.1)(typescript@6.0.2)
       '@types/w3c-web-usb':
         specifier: ^1.0.14
         version: 1.0.14
@@ -39,6 +39,9 @@ importers:
       rollup:
         specifier: ^4.60.1
         version: 4.60.1
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
 
 packages:
 
@@ -1204,6 +1207,11 @@ packages:
     engines: {node: '>=4.2.0'}
     hasBin: true
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   uglify-js@2.8.29:
     resolution: {integrity: sha512-qLq/4y2pjcU3vhlhseXGGJ7VbFO4pBANu0kwl8VCa9KEI0V8VfZIx2Fy3w01iSTA/pGwKZSmu/+I4etLNDdt5w==}
     engines: {node: '>=0.8.0'}
@@ -1484,11 +1492,11 @@ snapshots:
     optionalDependencies:
       rollup: 4.60.1
 
-  '@rollup/plugin-typescript@12.3.0(rollup@4.60.1)(tslib@2.8.1)(typescript@4.9.5)':
+  '@rollup/plugin-typescript@12.3.0(rollup@4.60.1)(tslib@2.8.1)(typescript@6.0.2)':
     dependencies:
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
       resolve: 1.22.12
-      typescript: 4.9.5
+      typescript: 6.0.2
     optionalDependencies:
       rollup: 4.60.1
       tslib: 2.8.1
@@ -2437,6 +2445,8 @@ snapshots:
   typescript@3.9.10: {}
 
   typescript@4.9.5: {}
+
+  typescript@6.0.2: {}
 
   uglify-js@2.8.29:
     dependencies:

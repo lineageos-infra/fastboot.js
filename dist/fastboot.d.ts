@@ -1,4 +1,3 @@
-/// <reference types="w3c-web-usb" />
 import { FactoryProgressCallback } from "./factory";
 /**
  * Exception class for USB errors not directly thrown by WebUSB.

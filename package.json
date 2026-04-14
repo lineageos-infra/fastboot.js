@@ -14,15 +14,15 @@
         "@rollup/plugin-terser": "^1.0.0",
         "@rollup/plugin-typescript": "^12.3.0",
         "@types/w3c-web-usb": "^1.0.14",
-        "better-docs": "^2.7.3",
         "eslint": "^10.2.0",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "^3.8.2",
         "rollup": "^4.60.1",
+        "typedoc": "^0.28.19",
         "typescript": "^6.0.2"
     },
     "scripts": {
-        "doc": "jsdoc -c jsdoc.json",
+        "doc": "typedoc src/index.ts",
         "build": "rollup -c && tsc"
     },
     "files": [

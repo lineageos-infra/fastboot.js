@@ -3,8 +3,8 @@ import * as Lp from "./lp";
 import * as common from "./common";
 import { FastbootError, UsbError } from "./errors";
 import {
-    FactoryProgressCallback,
-    flashZip as flashFactoryZip,
+    type FactoryProgressCallback,
+    flashZip,
 } from "./factory";
 
 const FASTBOOT_USB_CLASS = 0xff;
@@ -637,7 +637,7 @@ export class FastbootDevice {
         onReconnect: ReconnectCallback,
         onProgress: FactoryProgressCallback = (_progress) => {}
     ) {
-        return await flashFactoryZip(this, blob, wipe, onReconnect, onProgress);
+        return await flashZip(this, blob, wipe, onReconnect, onProgress);
     }
 
     /**

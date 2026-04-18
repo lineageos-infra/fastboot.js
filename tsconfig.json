@@ -1,19 +1,30 @@
 {
     "compilerOptions": {
-        "target": "ES2020",
-        "module": "es2020",
-        "allowJs": true,
         "rootDir": "./src",
         "outDir": "./dist",
-        "declaration": true,
-        "declarationMap": true,
-        "emitDeclarationOnly": true,
-        "strict": true,
+
+        /* Base Options: */
         "esModuleInterop": true,
         "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true,
-        "moduleResolution": "bundler",
-        "types": ["@types/w3c-web-usb"]
+        "target": "es2022",
+        "allowJs": true,
+        "resolveJsonModule": true,
+        "moduleDetection": "force",
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+
+        /* Strictness */
+        "strict": true,
+        // "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+
+        /* Library Options: */
+        "declaration": true,
+        "declarationMap": true,
+        "module": "preserve",
+        "emitDeclarationOnly": true,
+        "lib": ["es2022", "dom", "dom.iterable"],
+        "types": ["w3c-web-usb"],
     },
-    "include": ["./src/**/*"]
+    "include": ["src"]
 }

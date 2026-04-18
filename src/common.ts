@@ -1,5 +1,5 @@
 import { TimeoutError } from "./errors";
-import { FactoryProgressCallback } from "./factory";
+import { type FactoryProgressCallback } from "./factory";
 
 export enum DebugLevel {
     Silent = 0,

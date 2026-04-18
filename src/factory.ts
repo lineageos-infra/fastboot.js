@@ -1,5 +1,4 @@
 import * as common from "./common";
-import { FastbootError } from "./errors";
 import {
     type EntryGetDataOptions,
     type FileEntry,
@@ -11,20 +10,12 @@ import {
     ZipReader,
 } from "@zip.js/zip.js";
 import type { FastbootDevice, ReconnectCallback } from "./fastboot";
-
-/**
- * Callback for factory image flashing progress.
- *
- * @callback FactoryProgressCallback
- * @param {string} action - Action in the flashing process, e.g. unpack/flash.
- * @param {string} item - Item processed by the action, e.g. partition being flashed.
- * @param {number} progress - Progress within the current action between 0 and 1.
- */
-export type FactoryProgressCallback = (
-    action: string,
-    item: string,
-    progress: number
-) => void;
+import { FastbootError } from "./utils/errors";
+import { logDebug } from "./utils/logger";
+import {
+  type FactoryProgressCallback,
+  runWithTimedProgress,
+} from "./utils/progress";
 
 // Images needed for fastbootd
 const BOOT_CRITICAL_IMAGES = [
@@ -97,7 +88,7 @@ async function flashEntryBlob(
     partition: string,
     slot: string = "current"
 ) {
-    common.logDebug(`Unpacking ${partition}`);
+    logDebug(`Unpacking ${partition}`);
     onProgress("unpack", partition, 0.0);
     let blob = await zipGetData<Blob>(
         entry,
@@ -109,7 +100,7 @@ async function flashEntryBlob(
         }
     );
 
-    common.logDebug(`Flashing ${partition}`);
+    logDebug(`Flashing ${partition}`);
     onProgress("flash", partition, 0.0);
     await device.flashBlob(partition, slot, blob, (progress) => {
         onProgress("flash", partition, progress);
@@ -176,12 +167,12 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
             let realValue = await device.getVariable(variable);
 
             if (expectValues.includes(realValue)) {
-                common.logDebug(
+                logDebug(
                     `Requirement ${variable}=${expectValue} passed`
                 );
             } else {
                 let msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`;
-                common.logDebug(msg);
+                logDebug(msg);
                 throw new FastbootError("FAIL", msg);
             }
         }
@@ -244,7 +235,7 @@ export async function flashZip(
 
     // 1. Bootloader pack
     await tryFlashImages(device, entries, onProgress, ["bootloader"], "other");
-    await common.runWithTimedProgress(
+    await runWithTimedProgress(
         onProgress,
         "reboot",
         "device",
@@ -253,7 +244,7 @@ export async function flashZip(
     );
     // Flash the other slot
     await tryFlashImages(device, entries, onProgress, ["bootloader"], "other");
-    await common.runWithTimedProgress(
+    await runWithTimedProgress(
         onProgress,
         "reboot",
         "device",
@@ -263,7 +254,7 @@ export async function flashZip(
 
     // 2. Radio pack
     await tryFlashImages(device, entries, onProgress, ["radio"], "other");
-    await common.runWithTimedProgress(
+    await runWithTimedProgress(
         onProgress,
         "reboot",
         "device",
@@ -272,7 +263,7 @@ export async function flashZip(
     );
     // Flash the other slot
     await tryFlashImages(device, entries, onProgress, ["radio"], "other");
-    await common.runWithTimedProgress(
+    await runWithTimedProgress(
         onProgress,
         "reboot",
         "device",
@@ -287,7 +278,7 @@ export async function flashZip(
     }
 
     // Load nested images for the following steps
-    common.logDebug("Loading nested images from zip");
+    logDebug("Loading nested images from zip");
     onProgress("unpack", "images", 0.0);
     let entry = entries.find((e) => e.filename.match(/image-.+\.zip$/));
     let imagesBlob = await zipGetData<Blob>(
@@ -325,7 +316,7 @@ export async function flashZip(
     // This is also where we reboot to fastbootd.
     entry = imageEntries.find((e) => e.filename === "super_empty.img");
     if (entry !== undefined) {
-        await common.runWithTimedProgress(
+        await runWithTimedProgress(
             onProgress,
             "reboot",
             "device",
@@ -363,7 +354,7 @@ export async function flashZip(
     // even when there's no custom AVB key, because common follow-up actions like
     // locking the bootloader and wiping data need to be done in the bootloader.
     if ((await device.getVariable("is-userspace")) === "yes") {
-        await common.runWithTimedProgress(
+        await runWithTimedProgress(
             onProgress,
             "reboot",
             "device",
@@ -374,7 +365,7 @@ export async function flashZip(
 
     // 8. Wipe userdata
     if (wipe) {
-        await common.runWithTimedProgress(
+        await runWithTimedProgress(
             onProgress,
             "wipe",
             "data",

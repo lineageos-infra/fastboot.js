@@ -1,6 +1,7 @@
 import * as common from "./common";
-import { LpError } from "./errors";
 import * as Sparse from "./sparse";
+import { LpError } from "./utils/errors";
+import { logDebug } from "./utils/logger";
 
 // Magic values
 const LP_METADATA_GEOMETRY_MAGIC = 0x616c4467;
@@ -495,7 +496,7 @@ function validateParsedMetadata(
  *   [LP_METADATA_GEOMETRY_SIZE ..)    — header + tables (metadata slot 0)
  */
 export async function readFromImageBlob(blob: Blob): Promise<LpMetadata> {
-    common.logDebug(`Parsing LP metadata from ${blob.size}-byte image`);
+    logDebug(`Parsing LP metadata from ${blob.size}-byte image`);
 
     // super_empty.img written by AOSP WriteToImageFile(fd, metadata) has:
     //   offset 0                    — geometry (LP_METADATA_GEOMETRY_SIZE bytes, padded)
@@ -509,7 +510,7 @@ export async function readFromImageBlob(blob: Blob): Promise<LpMetadata> {
         ),
     );
     const geometry = await parseGeometry(geomBuf);
-    common.logDebug(
+    logDebug(
         `LP geometry: maxSize=${geometry.metadataMaxSize}, slotCount=${geometry.metadataSlotCount}, blockSize=${geometry.logicalBlockSize}`,
     );
 
@@ -537,7 +538,7 @@ export async function readFromImageBlob(blob: Blob): Promise<LpMetadata> {
     );
 
     const header = await parseHeader(headerBuf, tablesBuf);
-    common.logDebug(
+    logDebug(
         `LP header: v${header.majorVersion}.${header.minorVersion}, headerSize=${header.headerSize}`,
     );
 
@@ -576,11 +577,11 @@ export async function readFromImageBlob(blob: Blob): Promise<LpMetadata> {
         blockDevices,
     );
 
-    common.logDebug(
+    logDebug(
         `LP: ${partitions.length} partitions, ${blockDevices.length} block device(s)`,
     );
     for (const bd of blockDevices) {
-        common.logDebug(
+        logDebug(
             `  block device "${bd.partitionName}": size=${
                 bd.size
             }, flags=0x${bd.flags.toString(16)}`,
@@ -913,7 +914,7 @@ export async function buildWipeSuperImages(
         }
 
         const data = await common.readBlobAsBuffer(sparseBlob);
-        common.logDebug(
+        logDebug(
             `Generated ${data.byteLength}-byte sparse image for "${partitionName}"`,
         );
 

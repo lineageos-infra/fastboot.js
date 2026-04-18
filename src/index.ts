@@ -7,9 +7,9 @@ export {
     LpError,
     TimeoutError,
     UsbError,
-} from "./errors";
+} from "./utils/errors";
 export { USER_ACTION_MAP } from "./factory";
-export { setDebugLevel, setDebugLogger } from "./common";
+export { setDebugLevel, setDebugLogger } from "./utils/logger";
 export {
     type LpMetadata,
     type LpMetadataGeometry,

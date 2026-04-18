@@ -1,5 +1,6 @@
 import * as common from "./common";
-import { ImageError } from "./errors";
+import { ImageError } from "./utils/errors";
+import { logDebug, logVerbose } from "./utils/logger";
 
 const FILE_MAGIC = 0xed26ff3a;
 
@@ -220,7 +221,7 @@ export async function fromRaw(blob: Blob): Promise<Blob> {
  * @yields {Object} Data of the next split image and its output size in bytes.
  */
 export async function* splitBlob(blob: Blob, splitSize: number) {
-    common.logDebug(
+    logDebug(
         `Splitting ${blob.size}-byte sparse image into ${splitSize}-byte chunks`
     );
 
@@ -230,7 +231,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
 
     // Short-circuit if splitting isn't required
     if (blob.size <= splitSize) {
-        common.logDebug("Blob fits in 1 payload, not splitting");
+        logDebug("Blob fits in 1 payload, not splitting");
         yield {
             data: await common.readBlobAsBuffer(blob),
             bytes: blob.size,
@@ -264,7 +265,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
 
         // take into account cases where the chunk data is bigger than the maximum allowed download size
         if (originalChunk.dataBytes > safeSendValue) {
-            common.logDebug(
+            logDebug(
                 `Data of chunk ${i} is bigger than the maximum allowed download size: ${originalChunk.dataBytes} > ${safeSendValue}`
             );
 
@@ -287,7 +288,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
 
             }
 
-            common.logDebug("chunksToProcess", chunksToProcess);
+            logDebug("chunksToProcess", chunksToProcess);
 
         } else {
             chunksToProcess.push(originalChunk)
@@ -296,13 +297,13 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
         for(const chunk of chunksToProcess) {
 
             let bytesRemaining = splitSize - calcChunksSize(splitChunks);
-            common.logVerbose(
+            logVerbose(
                 `  Chunk ${i}: type ${chunk.type}, ${chunk.dataBytes} bytes / ${chunk.blocks} blocks, ${bytesRemaining} bytes remaining`
             );
 
             if (bytesRemaining >= chunk.dataBytes) {
                 // Read the chunk and add it
-                common.logVerbose("    Space is available, adding chunk");
+                logVerbose("    Space is available, adding chunk");
                 splitChunks.push(chunk);
                 // Track amount of data written on the output device, in bytes
                 splitDataBytes += chunk.blocks * header.blockSize;
@@ -317,7 +318,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
                     data: new Blob([]),
                     dataBytes: 0,
                 });
-                common.logVerbose(
+                logVerbose(
                     `Partition is ${
                         header.blocks
                     } blocks, used ${splitBlocks}, padded with ${
@@ -327,7 +328,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
                     )} blocks`
                 );
                 let splitImage = await createImage(header, splitChunks);
-                common.logDebug(
+                logDebug(
                     `Finished ${splitImage.size}-byte split with ${splitChunks.length} chunks`
                 );
                 yield {
@@ -337,7 +338,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
 
                 // Start a new split. Every split is considered a full image by the
                 // bootloader, so we need to skip the *total* written blocks.
-                common.logVerbose(
+                logVerbose(
                     `Starting new split: skipping first ${splitBlocks} blocks and adding chunk`
                 );
                 splitChunks = [
@@ -362,7 +363,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
         (splitChunks.length > 1 || splitChunks[0].type !== ChunkType.Skip)
     ) {
         let splitImage = await createImage(header, splitChunks);
-        common.logDebug(
+        logDebug(
             `Finishing final ${splitImage.size}-byte split with ${splitChunks.length} chunks`
         );
         yield {

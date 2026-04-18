@@ -1,11 +1,14 @@
 import * as Sparse from "./sparse";
 import * as Lp from "./lp";
 import * as common from "./common";
-import { FastbootError, UsbError } from "./errors";
+import { flashZip } from "./factory";
+import { FastbootError, UsbError } from "./utils/errors";
+import { logDebug, logVerbose } from "./utils/logger";
 import {
-    type FactoryProgressCallback,
-    flashZip,
-} from "./factory";
+  runWithTimeout,
+  type FactoryProgressCallback,
+  type FlashProgressCallback,
+} from "./utils/progress";
 
 const FASTBOOT_USB_CLASS = 0xff;
 const FASTBOOT_USB_SUBCLASS = 0x42;
@@ -25,14 +28,6 @@ interface CommandResponse {
     // hex string from DATA
     dataSize?: string;
 }
-
-/**
- * Callback for progress updates while flashing or uploading an image.
- *
- * @callback FlashProgressCallback
- * @param {number} progress - Progress for the current action, between 0 and 1.
- */
-export type FlashProgressCallback = (progress: number) => void;
 
 /**
  * Callback for reconnecting to the USB device.
@@ -103,7 +98,7 @@ export class FastbootDevice {
         this.epIn = null;
         this.epOut = null;
         for (let endpoint of ife.endpoints) {
-            common.logVerbose(
+            logVerbose(
                 `Checking endpoint: ` +
                 `endpointNumber=${endpoint.endpointNumber}, ` +
                 `direction=${endpoint.direction}, ` +
@@ -128,7 +123,7 @@ export class FastbootDevice {
                 }
             }
         }
-        common.logVerbose(`Endpoints: in=${this.epIn}, out=${this.epOut}`);
+        logVerbose(`Endpoints: in=${this.epIn}, out=${this.epOut}`);
 
         try {
             await this.device!.open();
@@ -210,12 +205,12 @@ export class FastbootDevice {
                 },
             ],
         });
-        common.logDebug("Using USB device:", this.device);
+        logDebug("Using USB device:", this.device);
 
         if (!this._registeredUsbListeners) {
             navigator.usb.addEventListener("disconnect", (event) => {
                 if (event.device === this.device) {
-                    common.logDebug("USB device disconnected");
+                    logDebug("USB device disconnected");
                     if (this._disconnectResolve !== null) {
                         this._disconnectResolve(undefined);
                         this._disconnectResolve = null;
@@ -224,7 +219,7 @@ export class FastbootDevice {
             });
 
             navigator.usb.addEventListener("connect", async (event) => {
-                common.logDebug("USB device connected");
+                logDebug("USB device connected");
                 this.device = event.device;
 
                 // Check whether waitForConnect() is pending and save it for later
@@ -265,7 +260,7 @@ export class FastbootDevice {
 
             respStatus = response.substring(0, 4);
             let respMessage = response.substring(4);
-            common.logDebug(`Response: ${respStatus} ${respMessage}`);
+            logDebug(`Response: ${respStatus} ${respMessage}`);
 
             if (respStatus === "OKAY") {
                 // OKAY = end of response for this command
@@ -303,7 +298,7 @@ export class FastbootDevice {
         // Send raw UTF-8 command
         let cmdPacket = new TextEncoder().encode(command);
         await this.device!.transferOut(this.epOut!, cmdPacket);
-        common.logDebug("Command:", command);
+        logDebug("Command:", command);
 
         return this._readResponse();
     }
@@ -320,7 +315,7 @@ export class FastbootDevice {
         let resp;
         try {
             resp = (
-                await common.runWithTimeout(
+                await runWithTimeout(
                     this.runCommand(`getvar:${varName}`),
                     GETVAR_TIMEOUT
                 )
@@ -382,7 +377,7 @@ export class FastbootDevice {
                 (i + 1) * BULK_TRANSFER_SIZE
             );
             if (i % 1000 === 0) {
-                common.logVerbose(
+                logVerbose(
                     `  Sending ${chunk.byteLength} bytes to endpoint, ${remainingBytes} remaining, i=${i}`
                 );
             }
@@ -415,7 +410,7 @@ export class FastbootDevice {
         buffer: ArrayBuffer,
         onProgress: FlashProgressCallback = (_progress) => {}
     ) {
-        common.logDebug(
+        logDebug(
             `Uploading single sparse to ${partition}: ${buffer.byteLength} bytes`
         );
 
@@ -444,10 +439,10 @@ export class FastbootDevice {
             );
         }
 
-        common.logDebug(`Sending payload: ${buffer.byteLength} bytes`);
+        logDebug(`Sending payload: ${buffer.byteLength} bytes`);
         await this._sendRawPayload(buffer, onProgress);
 
-        common.logDebug("Payload sent, waiting for response...");
+        logDebug("Payload sent, waiting for response...");
         await this._readResponse();
     }
 
@@ -539,7 +534,7 @@ export class FastbootDevice {
                 }
             }
         }
-        common.logDebug(`Flashing partition ${partition}`)
+        logDebug(`Flashing partition ${partition}`)
 
         let maxDlSize = await this._getDownloadSize();
         let fileHeader = await common.readBlobAsBuffer(
@@ -572,11 +567,11 @@ export class FastbootDevice {
 
         // Convert image to sparse (for splitting) if it exceeds the size limit
         if (blob.size > maxDlSize && !isSparse) {
-            common.logDebug(`${partition} image is raw, converting to sparse`);
+            logDebug(`${partition} image is raw, converting to sparse`);
             blob = await Sparse.fromRaw(blob);
         }
 
-        common.logDebug(
+        logDebug(
             `Flashing ${blob.size} bytes to ${partition}, ${maxDlSize} bytes per split`
         );
         let splits = 0;
@@ -586,14 +581,14 @@ export class FastbootDevice {
                 onProgress((sentBytes + progress * split.bytes) / totalBytes);
             });
 
-            common.logDebug("Flashing payload...");
+            logDebug("Flashing payload...");
             await this.runCommand(`flash:${partition}`);
 
             splits += 1;
             sentBytes += split.bytes;
         }
 
-        common.logDebug(`Flashed ${partition} with ${splits} split(s)`);
+        logDebug(`Flashed ${partition} with ${splits} split(s)`);
     }
 
     /**
@@ -609,15 +604,15 @@ export class FastbootDevice {
         onProgress: FlashProgressCallback = (_progress) => {}
     ) {
 
-        common.logDebug(`Booting ${blob.size} bytes image`);
+        logDebug(`Booting ${blob.size} bytes image`);
 
         let data = await common.readBlobAsBuffer(blob);
         await this.upload("boot.img", data, onProgress);
 
-        common.logDebug("Booting payload...");
+        logDebug("Booting payload...");
         await this.runCommand("boot");
 
-        common.logDebug(`Booted ${blob.size} bytes image`);
+        logDebug(`Booted ${blob.size} bytes image`);
     }
 
     /**
@@ -667,7 +662,7 @@ export class FastbootDevice {
         } else if (slot === "other") {
             resolvedSlot = await this.getOtherSlot();
         }
-        common.logDebug(`Targeting slot "${resolvedSlot}"`);
+        logDebug(`Targeting slot "${resolvedSlot}"`);
 
         const images = await Lp.buildWipeSuperImages(metadata);
 
@@ -697,19 +692,19 @@ export class FastbootDevice {
             if (hasSlot === "yes") {
                 flashPartition = `${image.partitionName}_${resolvedSlot}`;
             } else if (image.forceSlot) {
-                common.logDebug(
+                logDebug(
                     `Warning: ${image.partitionName} does not support slots but slot suffix was requested`,
                 );
             }
 
-            common.logDebug(
+            logDebug(
                 `Flashing ${image.data.byteLength} bytes to "${flashPartition}"`,
             );
             await this.upload(flashPartition, image.data, onProgress);
             await this.runCommand(`flash:${flashPartition}`);
         }
 
-        common.logDebug("Wipe super Done");
+        logDebug("Wipe super Done");
     }
 
     /**

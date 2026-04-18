@@ -1,30 +1,8 @@
-import { FactoryProgressCallback } from "./factory";
-/**
- * Exception class for USB errors not directly thrown by WebUSB.
- */
-export declare class UsbError extends Error {
-    constructor(message: string);
-}
-/**
- * Exception class for errors returned by the bootloader, as well as high-level
- * fastboot errors resulting from bootloader responses.
- */
-export declare class FastbootError extends Error {
-    status: string;
-    bootloaderMessage: string;
-    constructor(status: string, message: string);
-}
+import { type FactoryProgressCallback, type FlashProgressCallback } from "./utils/progress";
 interface CommandResponse {
     text: string;
     dataSize?: string;
 }
-/**
- * Callback for progress updates while flashing or uploading an image.
- *
- * @callback FlashProgressCallback
- * @param {number} progress - Progress for the current action, between 0 and 1.
- */
-export type FlashProgressCallback = (progress: number) => void;
 /**
  * Callback for reconnecting to the USB device.
  * This is necessary because some platforms do not support automatic reconnection,
@@ -183,6 +161,20 @@ export declare class FastbootDevice {
      * @param {FactoryProgressCallback} onProgress - Progress callback for image flashing.
      */
     flashFactoryZip(blob: Blob, wipe: boolean, onReconnect: ReconnectCallback, onProgress?: FactoryProgressCallback): Promise<void>;
+    /**
+     * Wipe the super partition by flashing a minimal sparse image derived from
+     * the LP metadata in the given super_empty.img Blob.  This erases all logical
+     * partition data and resets the partition table to the empty layout encoded
+     * in the image.
+     *
+     * The device must be in the bootloader (not fastbootd) when this is called.
+     *
+     * @param {Blob} blob - Blob containing super_empty.img.
+     * @param {string} slot - The slot to target ("current", "a", or "b").
+     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+     * @throws {FastbootError}
+     */
+    wipeSuper(blob: Blob, slot?: string, onProgress?: FlashProgressCallback): Promise<void>;
     /**
      * Determine the other slot
      * Hardcoded for A/B currently as that's what we mostly have in the field

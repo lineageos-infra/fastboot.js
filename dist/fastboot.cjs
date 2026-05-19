@@ -7490,7 +7490,7 @@ class FastbootDevice {
     async flashBlob(partition, slot = "current", blob, onProgress = (_progress) => { }) {
         // Check slot if partition is A/B
         if ((await this.getVariable(`has-slot:${partition}`)) === "yes") {
-            let currentSlot = await this.getVariable("current-slot");
+            let currentSlot = await this.getSlot();
             if (slot === "current") {
                 // Default behavior, flash current slot
                 partition += "_" + currentSlot;
@@ -7601,7 +7601,7 @@ class FastbootDevice {
         // Resolve slot
         let resolvedSlot = slot;
         if (slot === "current") {
-            resolvedSlot = (await this.getVariable("current-slot")) ?? "a";
+            resolvedSlot = (await this.getSlot()) ?? "a";
         }
         else if (slot === "other") {
             resolvedSlot = await this.getOtherSlot();
@@ -7638,12 +7638,19 @@ class FastbootDevice {
         }
     }
     /**
+     * Determine the current slot
+     */
+    async getSlot() {
+        let currentSlot = await this.getVariable("current-slot");
+        return currentSlot?.slice(-1);
+    }
+    /**
      * Determine the other slot
      * Hardcoded for A/B currently as that's what we mostly have in the field
      *
      */
     async getOtherSlot() {
-        let currentSlot = await this.getVariable("current-slot");
+        let currentSlot = await this.getSlot();
         if (currentSlot === "a") {
             return "b";
         }

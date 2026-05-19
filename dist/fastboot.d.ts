@@ -176,6 +176,10 @@ export declare class FastbootDevice {
      */
     wipeSuper(blob: Blob, slot?: string, onProgress?: FlashProgressCallback): Promise<void>;
     /**
+     * Determine the current slot
+     */
+    getSlot(): Promise<string | undefined>;
+    /**
      * Determine the other slot
      * Hardcoded for A/B currently as that's what we mostly have in the field
      *

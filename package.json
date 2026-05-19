@@ -19,6 +19,7 @@
         "better-docs": "^2.7.3",
         "eslint": "^10.4.0",
         "eslint-config-prettier": "^10.1.8",
+        "husky": "^9.1.7",
         "prettier": "^3.8.3",
         "rollup": "^4.60.4",
         "typescript": "^6.0.3",
@@ -29,7 +30,9 @@
         "doc": "jsdoc -c jsdoc.json",
         "build": "rollup -c && tsc",
         "lint": "eslint . --fix",
-        "format": "prettier --write *.config.js src/"
+        "format": "prettier --write *.config.js src/",
+        "type-check": "tsc --noEmit",
+        "prepare": "husky"
     },
     "files": [
         "dist/*"

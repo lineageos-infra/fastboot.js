@@ -76,7 +76,7 @@ export function parseFileHeader(buffer: ArrayBuffer): SparseHeader | null {
     let minor = view.getUint16(6, true);
     if (major !== MAJOR_VERSION || minor < MINOR_VERSION) {
         throw new ImageError(
-            `Unsupported sparse image version ${major}.${minor}`
+            `Unsupported sparse image version ${major}.${minor}`,
         );
     }
 
@@ -87,7 +87,7 @@ export function parseFileHeader(buffer: ArrayBuffer): SparseHeader | null {
         chunkHdrSize !== CHUNK_HEADER_SIZE
     ) {
         throw new ImageError(
-            `Invalid file header size ${fileHdrSize}, chunk header size ${chunkHdrSize}`
+            `Invalid file header size ${fileHdrSize}, chunk header size ${chunkHdrSize}`,
         );
     }
 
@@ -136,7 +136,10 @@ function calcChunksSize(chunks: Array<SparseChunk>) {
     return overhead + calcChunksDataSize(chunks);
 }
 
-export async function createImage(header: SparseHeader, chunks: Array<SparseChunk>): Promise<Blob> {
+export async function createImage(
+    header: SparseHeader,
+    chunks: Array<SparseChunk>,
+): Promise<Blob> {
     let blobBuilder = new BlobBuilder();
 
     let buffer = new ArrayBuffer(FILE_HEADER_SIZE);
@@ -169,13 +172,11 @@ export async function createImage(header: SparseHeader, chunks: Array<SparseChun
         dataView.setUint16(0, chunk.type, true);
         dataView.setUint16(2, 0, true); // reserved
         dataView.setUint32(4, chunk.blocks, true);
-        dataView.setUint32(
-            8,
-            CHUNK_HEADER_SIZE + chunk.data!.size,
-            true
-        );
+        dataView.setUint32(8, CHUNK_HEADER_SIZE + chunk.data!.size, true);
 
-        let chunkArrayView = new Uint8Array(await common.readBlobAsBuffer(chunk.data!));
+        let chunkArrayView = new Uint8Array(
+            await common.readBlobAsBuffer(chunk.data!),
+        );
         arrayView.set(chunkArrayView, CHUNK_HEADER_SIZE);
         blobBuilder.append(new Blob([buffer]));
     }
@@ -222,12 +223,12 @@ export async function fromRaw(blob: Blob): Promise<Blob> {
  */
 export async function* splitBlob(blob: Blob, splitSize: number) {
     logDebug(
-        `Splitting ${blob.size}-byte sparse image into ${splitSize}-byte chunks`
+        `Splitting ${blob.size}-byte sparse image into ${splitSize}-byte chunks`,
     );
 
     // 7/8 is a safe value for the split size, to account for extra overhead
     // AOSP source code does the same
-    const safeSendValue = Math.floor(splitSize * (7/8));
+    const safeSendValue = Math.floor(splitSize * (7 / 8));
 
     // Short-circuit if splitting isn't required
     if (blob.size <= splitSize) {
@@ -240,7 +241,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
     }
 
     let headerData = await common.readBlobAsBuffer(
-        blob.slice(0, FILE_HEADER_SIZE)
+        blob.slice(0, FILE_HEADER_SIZE),
     );
     let header = parseFileHeader(headerData);
     if (header === null) {
@@ -255,10 +256,13 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
     let splitDataBytes = 0;
     for (let i = 0; i < header.chunks; i++) {
         let chunkHeaderData = await common.readBlobAsBuffer(
-            blob.slice(0, CHUNK_HEADER_SIZE)
+            blob.slice(0, CHUNK_HEADER_SIZE),
         );
         let originalChunk = parseChunkHeader(chunkHeaderData);
-        originalChunk.data = blob.slice(CHUNK_HEADER_SIZE, CHUNK_HEADER_SIZE + originalChunk.dataBytes);
+        originalChunk.data = blob.slice(
+            CHUNK_HEADER_SIZE,
+            CHUNK_HEADER_SIZE + originalChunk.dataBytes,
+        );
         blob = blob.slice(CHUNK_HEADER_SIZE + originalChunk.dataBytes);
 
         let chunksToProcess: SparseChunk[] = [];
@@ -266,7 +270,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
         // take into account cases where the chunk data is bigger than the maximum allowed download size
         if (originalChunk.dataBytes > safeSendValue) {
             logDebug(
-                `Data of chunk ${i} is bigger than the maximum allowed download size: ${originalChunk.dataBytes} > ${safeSendValue}`
+                `Data of chunk ${i} is bigger than the maximum allowed download size: ${originalChunk.dataBytes} > ${safeSendValue}`,
             );
 
             // we should now split this chunk into multiple chunks that fit
@@ -280,25 +284,22 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
                     type: originalChunk.type,
                     dataBytes: toSend,
                     data: originalData.slice(0, toSend),
-                    blocks: toSend / header?.blockSize
+                    blocks: toSend / header?.blockSize,
                 });
 
                 originalData = originalData.slice(toSend);
                 originalDataBytes -= toSend;
-
             }
 
             logDebug("chunksToProcess", chunksToProcess);
-
         } else {
-            chunksToProcess.push(originalChunk)
+            chunksToProcess.push(originalChunk);
         }
 
-        for(const chunk of chunksToProcess) {
-
+        for (const chunk of chunksToProcess) {
             let bytesRemaining = splitSize - calcChunksSize(splitChunks);
             logVerbose(
-                `  Chunk ${i}: type ${chunk.type}, ${chunk.dataBytes} bytes / ${chunk.blocks} blocks, ${bytesRemaining} bytes remaining`
+                `  Chunk ${i}: type ${chunk.type}, ${chunk.dataBytes} bytes / ${chunk.blocks} blocks, ${bytesRemaining} bytes remaining`,
             );
 
             if (bytesRemaining >= chunk.dataBytes) {
@@ -324,12 +325,12 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
                     } blocks, used ${splitBlocks}, padded with ${
                         header.blocks - splitBlocks
                     }, finishing split with ${calcChunksBlockSize(
-                        splitChunks
-                    )} blocks`
+                        splitChunks,
+                    )} blocks`,
                 );
                 let splitImage = await createImage(header, splitChunks);
                 logDebug(
-                    `Finished ${splitImage.size}-byte split with ${splitChunks.length} chunks`
+                    `Finished ${splitImage.size}-byte split with ${splitChunks.length} chunks`,
                 );
                 yield {
                     data: await common.readBlobAsBuffer(splitImage),
@@ -339,7 +340,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
                 // Start a new split. Every split is considered a full image by the
                 // bootloader, so we need to skip the *total* written blocks.
                 logVerbose(
-                    `Starting new split: skipping first ${splitBlocks} blocks and adding chunk`
+                    `Starting new split: skipping first ${splitBlocks} blocks and adding chunk`,
                 );
                 splitChunks = [
                     {
@@ -353,7 +354,6 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
 
                 splitDataBytes = chunk.dataBytes;
             }
-
         }
     }
 
@@ -364,7 +364,7 @@ export async function* splitBlob(blob: Blob, splitSize: number) {
     ) {
         let splitImage = await createImage(header, splitChunks);
         logDebug(
-            `Finishing final ${splitImage.size}-byte split with ${splitChunks.length} chunks`
+            `Finishing final ${splitImage.size}-byte split with ${splitChunks.length} chunks`,
         );
         yield {
             data: await common.readBlobAsBuffer(splitImage),

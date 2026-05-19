@@ -13,8 +13,8 @@ import type { FastbootDevice, ReconnectCallback } from "./fastboot";
 import { FastbootError } from "./utils/errors";
 import { logDebug } from "./utils/logger";
 import {
-  type FactoryProgressCallback,
-  runWithTimedProgress,
+    type FactoryProgressCallback,
+    runWithTimedProgress,
 } from "./utils/progress";
 
 // Images needed for fastbootd
@@ -64,7 +64,7 @@ const USERDATA_ERASE_TIME = 1000; // ms
 async function zipGetData<Type>(
     entry: FileEntry,
     writer: WritableWriter,
-    options?: EntryGetDataOptions | ZipReaderOptions
+    options?: EntryGetDataOptions | ZipReaderOptions,
 ): Promise<Type> {
     try {
         return await entry.getData!(writer, options);
@@ -86,7 +86,7 @@ async function flashEntryBlob(
     entry: FileEntry,
     onProgress: FactoryProgressCallback,
     partition: string,
-    slot: string = "current"
+    slot: string = "current",
 ) {
     logDebug(`Unpacking ${partition}`);
     onProgress("unpack", partition, 0.0);
@@ -97,7 +97,7 @@ async function flashEntryBlob(
             onprogress: (bytes: number, len: number) => {
                 onProgress("unpack", partition, bytes / len);
             },
-        }
+        },
     );
 
     logDebug(`Flashing ${partition}`);
@@ -149,7 +149,7 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
             if (hasSlot !== "yes" && hasSlot !== "no") {
                 throw new FastbootError(
                     "FAIL",
-                    `Requirement ${variable}=${expectValue} failed, device lacks partition`
+                    `Requirement ${variable}=${expectValue} failed, device lacks partition`,
                 );
             }
 
@@ -160,16 +160,14 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
             ) {
                 throw new FastbootError(
                     "FAIL",
-                    `Requirement ${variable}=${expectValue} failed, unrecognized partition`
+                    `Requirement ${variable}=${expectValue} failed, unrecognized partition`,
                 );
             }
         } else {
             let realValue = await device.getVariable(variable);
 
             if (expectValues.includes(realValue)) {
-                logDebug(
-                    `Requirement ${variable}=${expectValue} passed`
-                );
+                logDebug(`Requirement ${variable}=${expectValue} passed`);
             } else {
                 let msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`;
                 logDebug(msg);
@@ -182,7 +180,7 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
 async function tryReboot(
     device: FastbootDevice,
     target: string,
-    onReconnect: ReconnectCallback
+    onReconnect: ReconnectCallback,
 ) {
     try {
         await device.reboot(target, false);
@@ -196,7 +194,7 @@ async function tryReboot(
 async function tryRebootWithSlotSwitch(
     device: FastbootDevice,
     target: string,
-    onReconnect: ReconnectCallback
+    onReconnect: ReconnectCallback,
 ) {
     try {
         await device.rebootSwitchSlot(target, false);
@@ -215,17 +213,23 @@ export async function flashZip(
     onProgress: FactoryProgressCallback = (
         _action: string,
         _item: string,
-        _progress: number
-    ) => {}
+        _progress: number,
+    ) => {},
 ) {
     onProgress("load", "package", 0.0);
     let reader = new ZipReader(new BlobReader(blob));
-    let entries = (await reader.getEntries()).filter((e) => !e.directory) as FileEntry[];
+    let entries = (await reader.getEntries()).filter(
+        (e) => !e.directory,
+    ) as FileEntry[];
 
     // Ensure AVB custom key exists as expected.
-    let avbCustomKeyEntry = entries.find((e) => e.filename.endsWith("avb_custom_key.img"));
+    let avbCustomKeyEntry = entries.find((e) =>
+        e.filename.endsWith("avb_custom_key.img"),
+    );
     if (avbCustomKeyEntry === undefined) {
-        throw new Error("avb_custom_key.img not found! bootloader locking would fail.");
+        throw new Error(
+            "avb_custom_key.img not found! bootloader locking would fail.",
+        );
     }
 
     // Bootloader and radio packs can only be flashed in the bare-metal bootloader
@@ -240,7 +244,7 @@ export async function flashZip(
         "reboot",
         "device",
         BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect)
+        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
     );
     // Flash the other slot
     await tryFlashImages(device, entries, onProgress, ["bootloader"], "other");
@@ -249,7 +253,7 @@ export async function flashZip(
         "reboot",
         "device",
         BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect)
+        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
     );
 
     // 2. Radio pack
@@ -259,7 +263,7 @@ export async function flashZip(
         "reboot",
         "device",
         BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect)
+        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
     );
     // Flash the other slot
     await tryFlashImages(device, entries, onProgress, ["radio"], "other");
@@ -268,7 +272,7 @@ export async function flashZip(
         "reboot",
         "device",
         BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect)
+        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
     );
 
     // Cancel snapshot update if in progress
@@ -288,14 +292,21 @@ export async function flashZip(
             onprogress: (bytes: number, len: number) => {
                 onProgress("unpack", "images", bytes / len);
             },
-        }
+        },
     );
     let imageReader = new ZipReader(new BlobReader(imagesBlob));
-    let imageEntries = (await imageReader.getEntries()).filter((e) => !e.directory) as FileEntry[];
+    let imageEntries = (await imageReader.getEntries()).filter(
+        (e) => !e.directory,
+    ) as FileEntry[];
 
     // 3. Custom AVB key
     await device.runCommand("erase:avb_custom_key");
-    await flashEntryBlob(device, avbCustomKeyEntry, onProgress, "avb_custom_key");
+    await flashEntryBlob(
+        device,
+        avbCustomKeyEntry,
+        onProgress,
+        "avb_custom_key",
+    );
 
     // 4. Check requirements
     entry = imageEntries.find((e) => e.filename === "android-info.txt");
@@ -309,7 +320,7 @@ export async function flashZip(
         device,
         imageEntries,
         onProgress,
-        BOOT_CRITICAL_IMAGES
+        BOOT_CRITICAL_IMAGES,
     );
 
     // 6. Super partition template
@@ -321,7 +332,7 @@ export async function flashZip(
             "reboot",
             "device",
             FASTBOOTD_REBOOT_TIME,
-            device.reboot("fastboot", true, onReconnect)
+            device.reboot("fastboot", true, onReconnect),
         );
 
         let superName = await device.getVariable("super-partition-name");
@@ -333,17 +344,17 @@ export async function flashZip(
         onProgress(superAction, "super", 0.0);
         let superBlob = await zipGetData<Blob>(
             entry,
-            new BlobWriter("application/octet-stream")
+            new BlobWriter("application/octet-stream"),
         );
         await device.upload(
             superName,
             await common.readBlobAsBuffer(superBlob),
             (progress) => {
                 onProgress(superAction, "super", progress);
-            }
+            },
         );
         await device.runCommand(
-            `update-super:${superName}${wipe ? ":wipe" : ""}`
+            `update-super:${superName}${wipe ? ":wipe" : ""}`,
         );
     }
 
@@ -359,7 +370,7 @@ export async function flashZip(
             "reboot",
             "device",
             BOOTLOADER_REBOOT_TIME,
-            device.reboot("bootloader", true, onReconnect)
+            device.reboot("bootloader", true, onReconnect),
         );
     }
 
@@ -370,7 +381,7 @@ export async function flashZip(
             "wipe",
             "data",
             USERDATA_ERASE_TIME,
-            device.runCommand("erase:userdata")
+            device.runCommand("erase:userdata"),
         );
     }
 }

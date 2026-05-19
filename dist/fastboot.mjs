@@ -306,7 +306,7 @@ async function* splitBlob(blob, splitSize) {
                     type: originalChunk.type,
                     dataBytes: toSend,
                     data: originalData.slice(0, toSend),
-                    blocks: toSend / header?.blockSize
+                    blocks: toSend / header?.blockSize,
                 });
                 originalData = originalData.slice(toSend);
                 originalDataBytes -= toSend;
@@ -7499,7 +7499,7 @@ class FastbootDevice {
             }
             else {
                 // Allow flashing a particular slot directly
-                if (slot === 'a' || slot === 'b') {
+                if (slot === "a" || slot === "b") {
                     partition += "_" + slot;
                 }
                 else {

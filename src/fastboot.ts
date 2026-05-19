@@ -5,9 +5,9 @@ import { flashZip } from "./factory";
 import { FastbootError, UsbError } from "./utils/errors";
 import { logDebug, logVerbose } from "./utils/logger";
 import {
-  runWithTimeout,
-  type FactoryProgressCallback,
-  type FlashProgressCallback,
+    runWithTimeout,
+    type FactoryProgressCallback,
+    type FlashProgressCallback,
 } from "./utils/progress";
 
 const FASTBOOT_USB_CLASS = 0xff;
@@ -100,10 +100,10 @@ export class FastbootDevice {
         for (let endpoint of ife.endpoints) {
             logVerbose(
                 `Checking endpoint: ` +
-                `endpointNumber=${endpoint.endpointNumber}, ` +
-                `direction=${endpoint.direction}, ` +
-                `type=${endpoint.type}, ` +
-                `packetSize=${endpoint.packetSize}`,
+                    `endpointNumber=${endpoint.endpointNumber}, ` +
+                    `direction=${endpoint.direction}, ` +
+                    `type=${endpoint.type}, ` +
+                    `packetSize=${endpoint.packetSize}`,
             );
             if (endpoint.type !== "bulk") {
                 throw new UsbError("Interface endpoint is not bulk");
@@ -317,7 +317,7 @@ export class FastbootDevice {
             resp = (
                 await runWithTimeout(
                     this.runCommand(`getvar:${varName}`),
-                    GETVAR_TIMEOUT
+                    GETVAR_TIMEOUT,
                 )
             ).text;
         } catch (error) {
@@ -346,7 +346,7 @@ export class FastbootDevice {
     private async _getDownloadSize(): Promise<number> {
         try {
             let resp = (await this.getVariable(
-                "max-download-size"
+                "max-download-size",
             ))!.toLowerCase();
             if (resp) {
                 // AOSP fastboot requires hex
@@ -367,23 +367,23 @@ export class FastbootDevice {
      */
     private async _sendRawPayload(
         buffer: ArrayBuffer,
-        onProgress: FlashProgressCallback
+        onProgress: FlashProgressCallback,
     ) {
         let i = 0;
         let remainingBytes = buffer.byteLength;
         while (remainingBytes > 0) {
             let chunk = buffer.slice(
                 i * BULK_TRANSFER_SIZE,
-                (i + 1) * BULK_TRANSFER_SIZE
+                (i + 1) * BULK_TRANSFER_SIZE,
             );
             if (i % 1000 === 0) {
                 logVerbose(
-                    `  Sending ${chunk.byteLength} bytes to endpoint, ${remainingBytes} remaining, i=${i}`
+                    `  Sending ${chunk.byteLength} bytes to endpoint, ${remainingBytes} remaining, i=${i}`,
                 );
             }
             if (i % 10 === 0) {
                 onProgress(
-                    (buffer.byteLength - remainingBytes) / buffer.byteLength
+                    (buffer.byteLength - remainingBytes) / buffer.byteLength,
                 );
             }
 
@@ -408,10 +408,10 @@ export class FastbootDevice {
     async upload(
         partition: string,
         buffer: ArrayBuffer,
-        onProgress: FlashProgressCallback = (_progress) => {}
+        onProgress: FlashProgressCallback = (_progress) => {},
     ) {
         logDebug(
-            `Uploading single sparse to ${partition}: ${buffer.byteLength} bytes`
+            `Uploading single sparse to ${partition}: ${buffer.byteLength} bytes`,
         );
 
         // Bootloader requires an 8-digit hex number
@@ -419,7 +419,7 @@ export class FastbootDevice {
         if (xferHex.length !== 8) {
             throw new FastbootError(
                 "FAIL",
-                `Transfer size overflow: ${xferHex} is more than 8 digits`
+                `Transfer size overflow: ${xferHex} is more than 8 digits`,
             );
         }
 
@@ -428,14 +428,14 @@ export class FastbootDevice {
         if (downloadResp.dataSize === undefined) {
             throw new FastbootError(
                 "FAIL",
-                `Unexpected response to download command: ${downloadResp.text}`
+                `Unexpected response to download command: ${downloadResp.text}`,
             );
         }
         let downloadSize = parseInt(downloadResp.dataSize!, 16);
         if (downloadSize !== buffer.byteLength) {
             throw new FastbootError(
                 "FAIL",
-                `Bootloader wants ${downloadSize} bytes, requested to send ${buffer.byteLength} bytes`
+                `Bootloader wants ${downloadSize} bytes, requested to send ${buffer.byteLength} bytes`,
             );
         }
 
@@ -457,7 +457,7 @@ export class FastbootDevice {
     async reboot(
         target: string = "",
         wait: boolean = false,
-        onReconnect: ReconnectCallback = () => {}
+        onReconnect: ReconnectCallback = () => {},
     ) {
         if (target.length > 0) {
             await this.runCommand(`reboot-${target}`);
@@ -481,7 +481,7 @@ export class FastbootDevice {
     async rebootSwitchSlot(
         target: string = "",
         wait: boolean = false,
-        onReconnect: ReconnectCallback = () => {}
+        onReconnect: ReconnectCallback = () => {},
     ) {
         let otherSlot = await this.getOtherSlot();
         await this.runCommand(`set_active:${otherSlot}`);
@@ -513,7 +513,7 @@ export class FastbootDevice {
         partition: string,
         slot: string = "current",
         blob: Blob,
-        onProgress: FlashProgressCallback = (_progress) => {}
+        onProgress: FlashProgressCallback = (_progress) => {},
     ) {
         // Check slot if partition is A/B
         if ((await this.getVariable(`has-slot:${partition}`)) === "yes") {
@@ -527,18 +527,18 @@ export class FastbootDevice {
                 partition += "_" + otherSlot;
             } else {
                 // Allow flashing a particular slot directly
-                if (slot === 'a' || slot === 'b') {
+                if (slot === "a" || slot === "b") {
                     partition += "_" + slot;
                 } else {
                     throw new FastbootError("FAIL", `Unknown Slot: ${slot}`);
                 }
             }
         }
-        logDebug(`Flashing partition ${partition}`)
+        logDebug(`Flashing partition ${partition}`);
 
         let maxDlSize = await this._getDownloadSize();
         let fileHeader = await common.readBlobAsBuffer(
-            blob.slice(0, Sparse.FILE_HEADER_SIZE)
+            blob.slice(0, Sparse.FILE_HEADER_SIZE),
         );
 
         let totalBytes = blob.size;
@@ -561,7 +561,7 @@ export class FastbootDevice {
             await this.runCommand(`resize-logical-partition:${partition}:0`);
             // Set the actual size
             await this.runCommand(
-                `resize-logical-partition:${partition}:${totalBytes}`
+                `resize-logical-partition:${partition}:${totalBytes}`,
             );
         }
 
@@ -572,7 +572,7 @@ export class FastbootDevice {
         }
 
         logDebug(
-            `Flashing ${blob.size} bytes to ${partition}, ${maxDlSize} bytes per split`
+            `Flashing ${blob.size} bytes to ${partition}, ${maxDlSize} bytes per split`,
         );
         let splits = 0;
         let sentBytes = 0;
@@ -601,9 +601,8 @@ export class FastbootDevice {
      */
     async bootBlob(
         blob: Blob,
-        onProgress: FlashProgressCallback = (_progress) => {}
+        onProgress: FlashProgressCallback = (_progress) => {},
     ) {
-
         logDebug(`Booting ${blob.size} bytes image`);
 
         let data = await common.readBlobAsBuffer(blob);
@@ -630,7 +629,7 @@ export class FastbootDevice {
         blob: Blob,
         wipe: boolean,
         onReconnect: ReconnectCallback,
-        onProgress: FactoryProgressCallback = (_progress) => {}
+        onProgress: FactoryProgressCallback = (_progress) => {},
     ) {
         return await flashZip(this, blob, wipe, onReconnect, onProgress);
     }
@@ -719,7 +718,7 @@ export class FastbootDevice {
      *
      */
     async getOtherSlot() {
-        let currentSlot = await this.getSlot()
+        let currentSlot = await this.getSlot();
         if (currentSlot === "a") {
             return "b";
         } else if (currentSlot === "b") {
@@ -727,7 +726,7 @@ export class FastbootDevice {
         } else {
             throw new FastbootError(
                 "FAIL",
-                `Unable to determine other slot, current slot: ${currentSlot}`
+                `Unable to determine other slot, current slot: ${currentSlot}`,
             );
         }
     }

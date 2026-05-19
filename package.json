@@ -24,7 +24,8 @@
     "type": "module",
     "scripts": {
         "doc": "jsdoc -c jsdoc.json",
-        "build": "rollup -c && tsc"
+        "build": "rollup -c && tsc",
+        "format": "prettier --write *.config.js src/"
     },
     "files": [
         "dist/*"

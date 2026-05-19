@@ -3,9 +3,9 @@ export declare enum DebugLevel {
     Debug = 1,
     Verbose = 2
 }
-export type DebugLogger = (...data: any[]) => void;
-export declare function logDebug(...data: any[]): void;
-export declare function logVerbose(...data: any[]): void;
+export type DebugLogger = (...data: unknown[]) => void;
+export declare function logDebug(...data: unknown[]): void;
+export declare function logVerbose(...data: unknown[]): void;
 /**
  * Change the debug level for the fastboot client:
  *   - 0 = silent

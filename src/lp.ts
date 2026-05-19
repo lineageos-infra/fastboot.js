@@ -698,7 +698,7 @@ function serializeBlockDevice(bd: LpMetadataBlockDevice): ArrayBuffer {
 export async function serializeMetadata(
     metadata: LpMetadata,
 ): Promise<ArrayBuffer> {
-    const { header, geometry } = metadata;
+    const { header } = metadata;
 
     // Serialize each table
     const partitionBufs = metadata.partitions.map(serializePartition);

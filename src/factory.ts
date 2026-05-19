@@ -1,9 +1,6 @@
 import * as common from "./common";
 import {
-    type EntryGetDataOptions,
     type FileEntry,
-    type WritableWriter,
-    type ZipReaderOptions,
     BlobReader,
     BlobWriter,
     TextWriter,
@@ -60,27 +57,6 @@ const BOOTLOADER_REBOOT_TIME = 4000; // ms
 const FASTBOOTD_REBOOT_TIME = 16000; // ms
 const USERDATA_ERASE_TIME = 1000; // ms
 
-// Wrapper for Entry#getData() that unwraps ProgressEvent errors
-async function zipGetData<Type>(
-    entry: FileEntry,
-    writer: WritableWriter,
-    options?: EntryGetDataOptions | ZipReaderOptions,
-): Promise<Type> {
-    try {
-        return await entry.getData!(writer, options);
-    } catch (e) {
-        if (
-            e instanceof ProgressEvent &&
-            e.type === "error" &&
-            e.target !== null
-        ) {
-            throw (e.target as any).error;
-        } else {
-            throw e;
-        }
-    }
-}
-
 async function flashEntryBlob(
     device: FastbootDevice,
     entry: FileEntry,
@@ -90,8 +66,7 @@ async function flashEntryBlob(
 ) {
     logDebug(`Unpacking ${partition}`);
     onProgress("unpack", partition, 0.0);
-    let blob = await zipGetData<Blob>(
-        entry,
+    const blob = await entry.getData<Blob>(
         new BlobWriter("application/octet-stream"),
         {
             onprogress: (bytes: number, len: number) => {
@@ -114,9 +89,9 @@ async function tryFlashImages(
     imageNames: Array<string>,
     slot: string = "current",
 ) {
-    for (let imageName of imageNames) {
-        let pattern = new RegExp(`${imageName}(?:-.+)?\\.img$`);
-        let entry = entries.find((entry) => entry.filename.match(pattern));
+    for (const imageName of imageNames) {
+        const pattern = new RegExp(`${imageName}(?:-.+)?\\.img$`);
+        const entry = entries.find((entry) => entry.filename.match(pattern));
         if (entry !== undefined) {
             await flashEntryBlob(device, entry, onProgress, imageName, slot);
         }
@@ -125,8 +100,8 @@ async function tryFlashImages(
 
 async function checkRequirements(device: FastbootDevice, androidInfo: string) {
     // Deal with CRLF just in case
-    for (let line of androidInfo.replace("\r", "").split("\n")) {
-        let match = line.match(/^require\s+(.+?)=(.+)$/);
+    for (const line of androidInfo.replace("\r", "").split("\n")) {
+        const match = line.match(/^require\s+(.+?)=(.+)$/);
         if (!match) {
             continue;
         }
@@ -137,15 +112,15 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
             variable = "product";
         }
 
-        let expectValue = match[2];
-        let expectValues: Array<string | null> = expectValue.split("|");
+        const expectValue = match[2];
+        const expectValues: Array<string | null> = expectValue.split("|");
 
         // Special case: not a real variable at all
         if (variable === "partition-exists") {
             // Check whether the partition exists on the device:
             // has-slot = undefined || FAIL => doesn't exist
             // has-slot = yes || no         => exists
-            let hasSlot = await device.getVariable(`has-slot:${expectValue}`);
+            const hasSlot = await device.getVariable(`has-slot:${expectValue}`);
             if (hasSlot !== "yes" && hasSlot !== "no") {
                 throw new FastbootError(
                     "FAIL",
@@ -164,31 +139,17 @@ async function checkRequirements(device: FastbootDevice, androidInfo: string) {
                 );
             }
         } else {
-            let realValue = await device.getVariable(variable);
+            const realValue = await device.getVariable(variable);
 
             if (expectValues.includes(realValue)) {
                 logDebug(`Requirement ${variable}=${expectValue} passed`);
             } else {
-                let msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`;
+                const msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`;
                 logDebug(msg);
                 throw new FastbootError("FAIL", msg);
             }
         }
     }
-}
-
-async function tryReboot(
-    device: FastbootDevice,
-    target: string,
-    onReconnect: ReconnectCallback,
-) {
-    try {
-        await device.reboot(target, false);
-    } catch (e) {
-        /* Failed = device rebooted by itself */
-    }
-
-    await device.waitForConnect(onReconnect);
 }
 
 async function tryRebootWithSlotSwitch(
@@ -198,7 +159,7 @@ async function tryRebootWithSlotSwitch(
 ) {
     try {
         await device.rebootSwitchSlot(target, false);
-    } catch (e) {
+    } catch {
         /* Failed = device rebooted by itself */
     }
 
@@ -210,20 +171,16 @@ export async function flashZip(
     blob: Blob,
     wipe: boolean,
     onReconnect: ReconnectCallback,
-    onProgress: FactoryProgressCallback = (
-        _action: string,
-        _item: string,
-        _progress: number,
-    ) => {},
+    onProgress: FactoryProgressCallback = () => {},
 ) {
     onProgress("load", "package", 0.0);
-    let reader = new ZipReader(new BlobReader(blob));
-    let entries = (await reader.getEntries()).filter(
+    const reader = new ZipReader(new BlobReader(blob));
+    const entries = (await reader.getEntries()).filter(
         (e) => !e.directory,
     ) as FileEntry[];
 
     // Ensure AVB custom key exists as expected.
-    let avbCustomKeyEntry = entries.find((e) =>
+    const avbCustomKeyEntry = entries.find((e) =>
         e.filename.endsWith("avb_custom_key.img"),
     );
     if (avbCustomKeyEntry === undefined) {
@@ -276,7 +233,7 @@ export async function flashZip(
     );
 
     // Cancel snapshot update if in progress
-    let snapshotStatus = await device.getVariable("snapshot-update-status");
+    const snapshotStatus = await device.getVariable("snapshot-update-status");
     if (snapshotStatus !== null && snapshotStatus !== "none") {
         await device.runCommand("snapshot-update:cancel");
     }
@@ -285,8 +242,7 @@ export async function flashZip(
     logDebug("Loading nested images from zip");
     onProgress("unpack", "images", 0.0);
     let entry = entries.find((e) => e.filename.match(/image-.+\.zip$/));
-    let imagesBlob = await zipGetData<Blob>(
-        entry!,
+    const imagesBlob = await entry!.getData<Blob>(
         new BlobWriter("application/zip"),
         {
             onprogress: (bytes: number, len: number) => {
@@ -294,8 +250,8 @@ export async function flashZip(
             },
         },
     );
-    let imageReader = new ZipReader(new BlobReader(imagesBlob));
-    let imageEntries = (await imageReader.getEntries()).filter(
+    const imageReader = new ZipReader(new BlobReader(imagesBlob));
+    const imageEntries = (await imageReader.getEntries()).filter(
         (e) => !e.directory,
     ) as FileEntry[];
 
@@ -311,7 +267,7 @@ export async function flashZip(
     // 4. Check requirements
     entry = imageEntries.find((e) => e.filename === "android-info.txt");
     if (entry !== undefined) {
-        let reqText = await zipGetData<string>(entry, new TextWriter());
+        const reqText = await entry.getData<string>(new TextWriter());
         await checkRequirements(device, reqText);
     }
 
@@ -340,10 +296,9 @@ export async function flashZip(
             superName = "super";
         }
 
-        let superAction = wipe ? "wipe" : "flash";
+        const superAction = wipe ? "wipe" : "flash";
         onProgress(superAction, "super", 0.0);
-        let superBlob = await zipGetData<Blob>(
-            entry,
+        const superBlob = await entry.getData<Blob>(
             new BlobWriter("application/octet-stream"),
         );
         await device.upload(

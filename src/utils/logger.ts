@@ -4,18 +4,18 @@ export enum DebugLevel {
     Verbose,
 }
 
-export type DebugLogger = (...data: any[]) => void;
+export type DebugLogger = (...data: unknown[]) => void;
 
 let debugLevel = DebugLevel.Silent;
 let debugLogger = console.log;
 
-export function logDebug(...data: any[]) {
+export function logDebug(...data: unknown[]) {
     if (debugLevel >= 1) {
         debugLogger(...data);
     }
 }
 
-export function logVerbose(...data: any[]) {
+export function logVerbose(...data: unknown[]) {
     if (debugLevel >= 2) {
         debugLogger(...data);
     }

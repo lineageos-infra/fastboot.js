@@ -23,7 +23,7 @@ export type FactoryProgressCallback = (
 ) => void;
 
 function waitForFrame() {
-    return new Promise((resolve, _reject) => {
+    return new Promise((resolve) => {
         window.requestAnimationFrame(resolve);
     });
 }
@@ -35,13 +35,13 @@ export async function runWithTimedProgress<T>(
     duration: number,
     workPromise: Promise<T>,
 ) {
-    let startTime = new Date().getTime();
+    const startTime = new Date().getTime();
     let stop = false;
 
     onProgress(action, item, 0.0);
-    let progressPromise = (async () => {
+    const progressPromise = (async () => {
         let now;
-        let targetTime = startTime + duration;
+        const targetTime = startTime + duration;
 
         do {
             now = new Date().getTime();
@@ -65,7 +65,7 @@ export function runWithTimeout<T>(
     return new Promise((resolve, reject) => {
         // Set up timeout
         let timedOut = false;
-        let tid = setTimeout(() => {
+        const tid = setTimeout(() => {
             // Set sentinel first to prevent race in promise resolving
             timedOut = true;
             reject(new TimeoutError(timeout));

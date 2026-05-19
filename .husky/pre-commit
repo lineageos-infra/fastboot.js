@@ -1,0 +1,3 @@
+pnpm run lint
+pnpm run type-check
+pnpm run format --check --no-write

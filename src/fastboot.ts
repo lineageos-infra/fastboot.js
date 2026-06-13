@@ -127,13 +127,6 @@ export class FastbootDevice {
 
         try {
             await this.device!.open();
-            // Opportunistically reset to fix issues on some platforms
-            try {
-                await this.device!.reset();
-            } catch {
-                /* Failed = doesn't support reset */
-            }
-
             await this.device!.selectConfiguration(1);
             await this.device!.claimInterface(0); // fastboot
         } catch (error) {

@@ -6,15 +6,15 @@
  * @ignore
  */
 export function readBlobAsBuffer(blob: Blob): Promise<ArrayBuffer> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            resolve(reader.result! as ArrayBuffer);
-        };
-        reader.onerror = () => {
-            reject(reader.error);
-        };
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      resolve(reader.result! as ArrayBuffer)
+    }
+    reader.onerror = () => {
+      reject(reader.error)
+    }
 
-        reader.readAsArrayBuffer(blob);
-    });
+    reader.readAsArrayBuffer(blob)
+  })
 }

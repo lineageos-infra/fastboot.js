@@ -1,342 +1,298 @@
-import * as common from "./common";
-import {
-    type FileEntry,
-    BlobReader,
-    BlobWriter,
-    TextWriter,
-    ZipReader,
-} from "@zip.js/zip.js";
-import type { FastbootDevice, ReconnectCallback } from "./fastboot";
-import { FastbootError } from "./utils/errors";
-import { logDebug } from "./utils/logger";
-import {
-    type FactoryProgressCallback,
-    runWithTimedProgress,
-} from "./utils/progress";
+import { BlobReader, BlobWriter, TextWriter, ZipReader, type FileEntry } from '@zip.js/zip.js'
+import * as common from './common'
+import type { FastbootDevice, ReconnectCallback } from './fastboot'
+import { FastbootError } from './utils/errors'
+import { logDebug } from './utils/logger'
+import { runWithTimedProgress, type FactoryProgressCallback } from './utils/progress'
 
 // Images needed for fastbootd
 const BOOT_CRITICAL_IMAGES = [
-    "boot",
-    "dt",
-    "dtbo",
-    "init_boot",
-    "pvmfw",
-    "recovery",
-    "vbmeta_system",
-    "vbmeta_vendor",
-    "vbmeta",
-    "vendor_boot",
-    "vendor_kernel_boot",
-];
+  'boot',
+  'dt',
+  'dtbo',
+  'init_boot',
+  'pvmfw',
+  'recovery',
+  'vbmeta_system',
+  'vbmeta_vendor',
+  'vbmeta',
+  'vendor_boot',
+  'vendor_kernel_boot'
+]
 
 // Less critical images to flash after boot-critical ones
 const SYSTEM_IMAGES = [
-    "odm",
-    "odm_dlkm",
-    "product",
-    "system_dlkm",
-    "system_ext",
-    "system",
-    "vendor_dlkm",
-    "vendor",
-];
+  'odm',
+  'odm_dlkm',
+  'product',
+  'system_dlkm',
+  'system_ext',
+  'system',
+  'vendor_dlkm',
+  'vendor'
+]
 
 /**
  * User-friendly action strings for factory image flashing progress.
  * This can be indexed by the action argument in FactoryFlashCallback.
  */
 export const USER_ACTION_MAP = {
-    load: "Loading",
-    unpack: "Unpacking",
-    flash: "Writing",
-    wipe: "Wiping",
-    reboot: "Restarting",
-};
+  load: 'Loading',
+  unpack: 'Unpacking',
+  flash: 'Writing',
+  wipe: 'Wiping',
+  reboot: 'Restarting'
+}
 
-const BOOTLOADER_REBOOT_TIME = 4000; // ms
-const FASTBOOTD_REBOOT_TIME = 16000; // ms
-const USERDATA_ERASE_TIME = 1000; // ms
+const BOOTLOADER_REBOOT_TIME = 4000 // ms
+const FASTBOOTD_REBOOT_TIME = 16000 // ms
+const USERDATA_ERASE_TIME = 1000 // ms
 
 async function flashEntryBlob(
-    device: FastbootDevice,
-    entry: FileEntry,
-    onProgress: FactoryProgressCallback,
-    partition: string,
-    slot: string = "current",
+  device: FastbootDevice,
+  entry: FileEntry,
+  onProgress: FactoryProgressCallback,
+  partition: string,
+  slot: string = 'current'
 ) {
-    logDebug(`Unpacking ${partition}`);
-    onProgress("unpack", partition, 0.0);
-    const blob = await entry.getData<Blob>(
-        new BlobWriter("application/octet-stream"),
-        {
-            onprogress: (bytes: number, len: number) => {
-                onProgress("unpack", partition, bytes / len);
-            },
-        },
-    );
+  logDebug(`Unpacking ${partition}`)
+  onProgress('unpack', partition, 0.0)
+  const blob = await entry.getData<Blob>(new BlobWriter('application/octet-stream'), {
+    onprogress: (bytes: number, len: number) => {
+      onProgress('unpack', partition, bytes / len)
+    }
+  })
 
-    logDebug(`Flashing ${partition}`);
-    onProgress("flash", partition, 0.0);
-    await device.flashBlob(partition, slot, blob, (progress) => {
-        onProgress("flash", partition, progress);
-    });
+  logDebug(`Flashing ${partition}`)
+  onProgress('flash', partition, 0.0)
+  await device.flashBlob(partition, slot, blob, (progress) => {
+    onProgress('flash', partition, progress)
+  })
 }
 
 async function tryFlashImages(
-    device: FastbootDevice,
-    entries: Array<FileEntry>,
-    onProgress: FactoryProgressCallback,
-    imageNames: Array<string>,
-    slot: string = "current",
+  device: FastbootDevice,
+  entries: Array<FileEntry>,
+  onProgress: FactoryProgressCallback,
+  imageNames: Array<string>,
+  slot: string = 'current'
 ) {
-    for (const imageName of imageNames) {
-        const pattern = new RegExp(`${imageName}(?:-.+)?\\.img$`);
-        const entry = entries.find((entry) => entry.filename.match(pattern));
-        if (entry !== undefined) {
-            await flashEntryBlob(device, entry, onProgress, imageName, slot);
-        }
+  for (const imageName of imageNames) {
+    const pattern = new RegExp(`${imageName}(?:-.+)?\\.img$`)
+    const entry = entries.find((entry) => entry.filename.match(pattern))
+    if (entry !== undefined) {
+      await flashEntryBlob(device, entry, onProgress, imageName, slot)
     }
+  }
 }
 
 async function checkRequirements(device: FastbootDevice, androidInfo: string) {
-    // Deal with CRLF just in case
-    for (const line of androidInfo.replace("\r", "").split("\n")) {
-        const match = line.match(/^require\s+(.+?)=(.+)$/);
-        if (!match) {
-            continue;
-        }
-
-        let variable = match[1];
-        // Historical mismatch that we still need to deal with
-        if (variable === "board") {
-            variable = "product";
-        }
-
-        const expectValue = match[2];
-        const expectValues: Array<string | null> = expectValue.split("|");
-
-        // Special case: not a real variable at all
-        if (variable === "partition-exists") {
-            // Check whether the partition exists on the device:
-            // has-slot = undefined || FAIL => doesn't exist
-            // has-slot = yes || no         => exists
-            const hasSlot = await device.getVariable(`has-slot:${expectValue}`);
-            if (hasSlot !== "yes" && hasSlot !== "no") {
-                throw new FastbootError(
-                    "FAIL",
-                    `Requirement ${variable}=${expectValue} failed, device lacks partition`,
-                );
-            }
-
-            // Check whether we recognize the partition
-            if (
-                !BOOT_CRITICAL_IMAGES.includes(expectValue) &&
-                !SYSTEM_IMAGES.includes(expectValue)
-            ) {
-                throw new FastbootError(
-                    "FAIL",
-                    `Requirement ${variable}=${expectValue} failed, unrecognized partition`,
-                );
-            }
-        } else {
-            const realValue = await device.getVariable(variable);
-
-            if (expectValues.includes(realValue)) {
-                logDebug(`Requirement ${variable}=${expectValue} passed`);
-            } else {
-                const msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`;
-                logDebug(msg);
-                throw new FastbootError("FAIL", msg);
-            }
-        }
+  // Deal with CRLF just in case
+  for (const line of androidInfo.replace('\r', '').split('\n')) {
+    const match = line.match(/^require\s+(.+?)=(.+)$/)
+    if (!match) {
+      continue
     }
+
+    let variable = match[1]
+    // Historical mismatch that we still need to deal with
+    if (variable === 'board') {
+      variable = 'product'
+    }
+
+    const expectValue = match[2]
+    const expectValues: Array<string | null> = expectValue.split('|')
+
+    // Special case: not a real variable at all
+    if (variable === 'partition-exists') {
+      // Check whether the partition exists on the device:
+      // has-slot = undefined || FAIL => doesn't exist
+      // has-slot = yes || no         => exists
+      const hasSlot = await device.getVariable(`has-slot:${expectValue}`)
+      if (hasSlot !== 'yes' && hasSlot !== 'no') {
+        throw new FastbootError(
+          'FAIL',
+          `Requirement ${variable}=${expectValue} failed, device lacks partition`
+        )
+      }
+
+      // Check whether we recognize the partition
+      if (!BOOT_CRITICAL_IMAGES.includes(expectValue) && !SYSTEM_IMAGES.includes(expectValue)) {
+        throw new FastbootError(
+          'FAIL',
+          `Requirement ${variable}=${expectValue} failed, unrecognized partition`
+        )
+      }
+    } else {
+      const realValue = await device.getVariable(variable)
+
+      if (expectValues.includes(realValue)) {
+        logDebug(`Requirement ${variable}=${expectValue} passed`)
+      } else {
+        const msg = `Requirement ${variable}=${expectValue} failed, value = ${realValue}`
+        logDebug(msg)
+        throw new FastbootError('FAIL', msg)
+      }
+    }
+  }
 }
 
 async function tryRebootWithSlotSwitch(
-    device: FastbootDevice,
-    target: string,
-    onReconnect: ReconnectCallback,
+  device: FastbootDevice,
+  target: string,
+  onReconnect: ReconnectCallback
 ) {
-    try {
-        await device.rebootSwitchSlot(target, false);
-    } catch {
-        /* Failed = device rebooted by itself */
-    }
+  try {
+    await device.rebootSwitchSlot(target, false)
+  } catch {
+    /* Failed = device rebooted by itself */
+  }
 
-    await device.waitForConnect(onReconnect);
+  await device.waitForConnect(onReconnect)
 }
 
 export async function flashZip(
-    device: FastbootDevice,
-    blob: Blob,
-    wipe: boolean,
-    onReconnect: ReconnectCallback,
-    onProgress: FactoryProgressCallback = () => {},
+  device: FastbootDevice,
+  blob: Blob,
+  wipe: boolean,
+  onReconnect: ReconnectCallback,
+  onProgress: FactoryProgressCallback = () => {}
 ) {
-    onProgress("load", "package", 0.0);
-    const reader = new ZipReader(new BlobReader(blob));
-    const entries = (await reader.getEntries()).filter(
-        (e) => !e.directory,
-    ) as FileEntry[];
+  onProgress('load', 'package', 0.0)
+  const reader = new ZipReader(new BlobReader(blob))
+  const entries = (await reader.getEntries()).filter((e) => !e.directory) as FileEntry[]
 
-    // Ensure AVB custom key exists as expected.
-    const avbCustomKeyEntry = entries.find((e) =>
-        e.filename.endsWith("avb_custom_key.img"),
-    );
-    if (avbCustomKeyEntry === undefined) {
-        throw new Error(
-            "avb_custom_key.img not found! bootloader locking would fail.",
-        );
+  // Ensure AVB custom key exists as expected.
+  const avbCustomKeyEntry = entries.find((e) => e.filename.endsWith('avb_custom_key.img'))
+  if (avbCustomKeyEntry === undefined) {
+    throw new Error('avb_custom_key.img not found! bootloader locking would fail.')
+  }
+
+  // Bootloader and radio packs can only be flashed in the bare-metal bootloader
+  if ((await device.getVariable('is-userspace')) === 'yes') {
+    await device.reboot('bootloader', true, onReconnect)
+  }
+
+  // 1. Bootloader pack
+  await tryFlashImages(device, entries, onProgress, ['bootloader'], 'other')
+  await runWithTimedProgress(
+    onProgress,
+    'reboot',
+    'device',
+    BOOTLOADER_REBOOT_TIME,
+    tryRebootWithSlotSwitch(device, 'bootloader', onReconnect)
+  )
+  // Flash the other slot
+  await tryFlashImages(device, entries, onProgress, ['bootloader'], 'other')
+  await runWithTimedProgress(
+    onProgress,
+    'reboot',
+    'device',
+    BOOTLOADER_REBOOT_TIME,
+    tryRebootWithSlotSwitch(device, 'bootloader', onReconnect)
+  )
+
+  // 2. Radio pack
+  await tryFlashImages(device, entries, onProgress, ['radio'], 'other')
+  await runWithTimedProgress(
+    onProgress,
+    'reboot',
+    'device',
+    BOOTLOADER_REBOOT_TIME,
+    tryRebootWithSlotSwitch(device, 'bootloader', onReconnect)
+  )
+  // Flash the other slot
+  await tryFlashImages(device, entries, onProgress, ['radio'], 'other')
+  await runWithTimedProgress(
+    onProgress,
+    'reboot',
+    'device',
+    BOOTLOADER_REBOOT_TIME,
+    tryRebootWithSlotSwitch(device, 'bootloader', onReconnect)
+  )
+
+  // Cancel snapshot update if in progress
+  const snapshotStatus = await device.getVariable('snapshot-update-status')
+  if (snapshotStatus !== null && snapshotStatus !== 'none') {
+    await device.runCommand('snapshot-update:cancel')
+  }
+
+  // Load nested images for the following steps
+  logDebug('Loading nested images from zip')
+  onProgress('unpack', 'images', 0.0)
+  let entry = entries.find((e) => e.filename.match(/image-.+\.zip$/))
+  const imagesBlob = await entry!.getData<Blob>(new BlobWriter('application/zip'), {
+    onprogress: (bytes: number, len: number) => {
+      onProgress('unpack', 'images', bytes / len)
     }
+  })
+  const imageReader = new ZipReader(new BlobReader(imagesBlob))
+  const imageEntries = (await imageReader.getEntries()).filter((e) => !e.directory) as FileEntry[]
 
-    // Bootloader and radio packs can only be flashed in the bare-metal bootloader
-    if ((await device.getVariable("is-userspace")) === "yes") {
-        await device.reboot("bootloader", true, onReconnect);
-    }
+  // 3. Custom AVB key
+  await device.runCommand('erase:avb_custom_key')
+  await flashEntryBlob(device, avbCustomKeyEntry, onProgress, 'avb_custom_key')
 
-    // 1. Bootloader pack
-    await tryFlashImages(device, entries, onProgress, ["bootloader"], "other");
+  // 4. Check requirements
+  entry = imageEntries.find((e) => e.filename === 'android-info.txt')
+  if (entry !== undefined) {
+    const reqText = await entry.getData<string>(new TextWriter())
+    await checkRequirements(device, reqText)
+  }
+
+  // 5. Boot-critical images
+  await tryFlashImages(device, imageEntries, onProgress, BOOT_CRITICAL_IMAGES)
+
+  // 6. Super partition template
+  // This is also where we reboot to fastbootd.
+  entry = imageEntries.find((e) => e.filename === 'super_empty.img')
+  if (entry !== undefined) {
     await runWithTimedProgress(
-        onProgress,
-        "reboot",
-        "device",
-        BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
-    );
-    // Flash the other slot
-    await tryFlashImages(device, entries, onProgress, ["bootloader"], "other");
+      onProgress,
+      'reboot',
+      'device',
+      FASTBOOTD_REBOOT_TIME,
+      device.reboot('fastboot', true, onReconnect)
+    )
+
+    let superName = await device.getVariable('super-partition-name')
+    if (!superName) {
+      superName = 'super'
+    }
+
+    const superAction = wipe ? 'wipe' : 'flash'
+    onProgress(superAction, 'super', 0.0)
+    const superBlob = await entry.getData<Blob>(new BlobWriter('application/octet-stream'))
+    await device.upload(superName, await common.readBlobAsBuffer(superBlob), (progress) => {
+      onProgress(superAction, 'super', progress)
+    })
+    await device.runCommand(`update-super:${superName}${wipe ? ':wipe' : ''}`)
+  }
+
+  // 7. Remaining system images
+  await tryFlashImages(device, imageEntries, onProgress, SYSTEM_IMAGES)
+
+  // We unconditionally reboot back to the bootloader here if we're in fastbootd,
+  // even when there's no custom AVB key, because common follow-up actions like
+  // locking the bootloader and wiping data need to be done in the bootloader.
+  if ((await device.getVariable('is-userspace')) === 'yes') {
     await runWithTimedProgress(
-        onProgress,
-        "reboot",
-        "device",
-        BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
-    );
+      onProgress,
+      'reboot',
+      'device',
+      BOOTLOADER_REBOOT_TIME,
+      device.reboot('bootloader', true, onReconnect)
+    )
+  }
 
-    // 2. Radio pack
-    await tryFlashImages(device, entries, onProgress, ["radio"], "other");
+  // 8. Wipe userdata
+  if (wipe) {
     await runWithTimedProgress(
-        onProgress,
-        "reboot",
-        "device",
-        BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
-    );
-    // Flash the other slot
-    await tryFlashImages(device, entries, onProgress, ["radio"], "other");
-    await runWithTimedProgress(
-        onProgress,
-        "reboot",
-        "device",
-        BOOTLOADER_REBOOT_TIME,
-        tryRebootWithSlotSwitch(device, "bootloader", onReconnect),
-    );
-
-    // Cancel snapshot update if in progress
-    const snapshotStatus = await device.getVariable("snapshot-update-status");
-    if (snapshotStatus !== null && snapshotStatus !== "none") {
-        await device.runCommand("snapshot-update:cancel");
-    }
-
-    // Load nested images for the following steps
-    logDebug("Loading nested images from zip");
-    onProgress("unpack", "images", 0.0);
-    let entry = entries.find((e) => e.filename.match(/image-.+\.zip$/));
-    const imagesBlob = await entry!.getData<Blob>(
-        new BlobWriter("application/zip"),
-        {
-            onprogress: (bytes: number, len: number) => {
-                onProgress("unpack", "images", bytes / len);
-            },
-        },
-    );
-    const imageReader = new ZipReader(new BlobReader(imagesBlob));
-    const imageEntries = (await imageReader.getEntries()).filter(
-        (e) => !e.directory,
-    ) as FileEntry[];
-
-    // 3. Custom AVB key
-    await device.runCommand("erase:avb_custom_key");
-    await flashEntryBlob(
-        device,
-        avbCustomKeyEntry,
-        onProgress,
-        "avb_custom_key",
-    );
-
-    // 4. Check requirements
-    entry = imageEntries.find((e) => e.filename === "android-info.txt");
-    if (entry !== undefined) {
-        const reqText = await entry.getData<string>(new TextWriter());
-        await checkRequirements(device, reqText);
-    }
-
-    // 5. Boot-critical images
-    await tryFlashImages(
-        device,
-        imageEntries,
-        onProgress,
-        BOOT_CRITICAL_IMAGES,
-    );
-
-    // 6. Super partition template
-    // This is also where we reboot to fastbootd.
-    entry = imageEntries.find((e) => e.filename === "super_empty.img");
-    if (entry !== undefined) {
-        await runWithTimedProgress(
-            onProgress,
-            "reboot",
-            "device",
-            FASTBOOTD_REBOOT_TIME,
-            device.reboot("fastboot", true, onReconnect),
-        );
-
-        let superName = await device.getVariable("super-partition-name");
-        if (!superName) {
-            superName = "super";
-        }
-
-        const superAction = wipe ? "wipe" : "flash";
-        onProgress(superAction, "super", 0.0);
-        const superBlob = await entry.getData<Blob>(
-            new BlobWriter("application/octet-stream"),
-        );
-        await device.upload(
-            superName,
-            await common.readBlobAsBuffer(superBlob),
-            (progress) => {
-                onProgress(superAction, "super", progress);
-            },
-        );
-        await device.runCommand(
-            `update-super:${superName}${wipe ? ":wipe" : ""}`,
-        );
-    }
-
-    // 7. Remaining system images
-    await tryFlashImages(device, imageEntries, onProgress, SYSTEM_IMAGES);
-
-    // We unconditionally reboot back to the bootloader here if we're in fastbootd,
-    // even when there's no custom AVB key, because common follow-up actions like
-    // locking the bootloader and wiping data need to be done in the bootloader.
-    if ((await device.getVariable("is-userspace")) === "yes") {
-        await runWithTimedProgress(
-            onProgress,
-            "reboot",
-            "device",
-            BOOTLOADER_REBOOT_TIME,
-            device.reboot("bootloader", true, onReconnect),
-        );
-    }
-
-    // 8. Wipe userdata
-    if (wipe) {
-        await runWithTimedProgress(
-            onProgress,
-            "wipe",
-            "data",
-            USERDATA_ERASE_TIME,
-            device.runCommand("erase:userdata"),
-        );
-    }
+      onProgress,
+      'wipe',
+      'data',
+      USERDATA_ERASE_TIME,
+      device.runCommand('erase:userdata')
+    )
+  }
 }

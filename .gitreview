@@ -1,5 +1,0 @@
-[gerrit]
-host=review.calyxos.org
-port=29418
-project=CalyxOS/fastboot.js
-defaultbranch=main

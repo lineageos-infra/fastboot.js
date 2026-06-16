@@ -1,8 +1,5 @@
 {
     "compilerOptions": {
-        "rootDir": "./src",
-        "outDir": "./dist",
-
         /* Base Options: */
         "esModuleInterop": true,
         "skipLibCheck": true,
@@ -19,10 +16,8 @@
         "noImplicitOverride": true,
 
         /* Library Options: */
-        "declaration": true,
-        "declarationMap": true,
+        "noEmit": true,
         "module": "preserve",
-        "emitDeclarationOnly": true,
         "lib": ["es2022", "dom", "dom.iterable"],
         "types": ["w3c-web-usb"],
     },

@@ -3,6 +3,8 @@
     "version": "1.1.5",
     "description": "JavaScript implementation of fastboot, using WebUSB",
     "main": "dist/fastboot.cjs",
+    "module": "dist/fastboot.mjs",
+    "types": "dist/fastboot.d.cts",
     "repository": "https://github.com/lineageos-infra/fastboot.js",
     "author": "Danny Lin <danny@kdrag0n.dev>",
     "license": "MIT",
@@ -12,25 +14,22 @@
     "devDependencies": {
         "@eslint/eslintrc": "^3.3.5",
         "@eslint/js": "^10.0.1",
-        "@rollup/plugin-node-resolve": "^16.0.3",
-        "@rollup/plugin-terser": "^1.0.0",
-        "@rollup/plugin-typescript": "^12.3.0",
         "@types/w3c-web-usb": "^1.0.14",
         "better-docs": "^2.7.3",
         "eslint": "^10.4.0",
         "eslint-config-prettier": "^10.1.8",
         "husky": "^9.1.7",
         "prettier": "^3.8.3",
-        "rollup": "^4.60.4",
+        "tsdown": "^0.22.2",
         "typescript": "^6.0.3",
         "typescript-eslint": "^8.59.4"
     },
     "type": "module",
     "scripts": {
         "doc": "jsdoc -c jsdoc.json",
-        "build": "rollup -c && tsc",
+        "build": "tsdown",
         "lint": "eslint . --fix",
-        "format": "prettier --write *.config.js src/",
+        "format": "prettier --write *.config.ts src/",
         "type-check": "tsc --noEmit",
         "prepare": "husky"
     },
@@ -38,9 +37,13 @@
         "dist/*"
     ],
     "exports": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/fastboot.mjs",
-        "require": "./dist/fastboot.cjs",
-        "default": "./dist/fastboot.cjs"
+        "import": {
+            "types": "./dist/fastboot.d.mts",
+            "default": "./dist/fastboot.mjs"
+        },
+        "require": {
+            "types": "./dist/fastboot.d.cts",
+            "default": "./dist/fastboot.cjs"
+        }
     }
 }

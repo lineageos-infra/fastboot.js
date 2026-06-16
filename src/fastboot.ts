@@ -1,32 +1,32 @@
-import * as Sparse from "./sparse";
-import * as Lp from "./lp";
-import * as common from "./common";
-import { flashZip } from "./factory";
-import { FastbootError, UsbError } from "./utils/errors";
-import { logDebug, logVerbose } from "./utils/logger";
+import * as common from './common'
+import { flashZip } from './factory'
+import * as Lp from './lp'
+import * as Sparse from './sparse'
+import { FastbootError, UsbError } from './utils/errors'
+import { logDebug, logVerbose } from './utils/logger'
 import {
-    runWithTimeout,
-    type FactoryProgressCallback,
-    type FlashProgressCallback,
-} from "./utils/progress";
+  runWithTimeout,
+  type FactoryProgressCallback,
+  type FlashProgressCallback
+} from './utils/progress'
 
-const FASTBOOT_USB_CLASS = 0xff;
-const FASTBOOT_USB_SUBCLASS = 0x42;
-const FASTBOOT_USB_PROTOCOL = 0x03;
+const FASTBOOT_USB_CLASS = 0xff
+const FASTBOOT_USB_SUBCLASS = 0x42
+const FASTBOOT_USB_PROTOCOL = 0x03
 
-const BULK_TRANSFER_SIZE = 16384;
+const BULK_TRANSFER_SIZE = 16384
 
-const DEFAULT_DOWNLOAD_SIZE = 512 * 1024 * 1024; // 512 MiB
+const DEFAULT_DOWNLOAD_SIZE = 512 * 1024 * 1024 // 512 MiB
 // To conserve RAM and work around Chromium's ~2 GiB size limit, we limit the
 // max download size even if the bootloader can accept more data.
-const MAX_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1 GiB
+const MAX_DOWNLOAD_SIZE = 1024 * 1024 * 1024 // 1 GiB
 
-const GETVAR_TIMEOUT = 10000; // ms
+const GETVAR_TIMEOUT = 10000 // ms
 
 interface CommandResponse {
-    text: string;
-    // hex string from DATA
-    dataSize?: string;
+  text: string
+  // hex string from DATA
+  dataSize?: string
 }
 
 /**
@@ -37,687 +37,654 @@ interface CommandResponse {
  *
  * @callback ReconnectCallback
  */
-export type ReconnectCallback = () => void;
+export type ReconnectCallback = () => void
 
 /**
  * This class is a client for executing fastboot commands and operations on a
  * device connected over USB.
  */
 export class FastbootDevice {
-    device: USBDevice | null;
-    epIn: number | null;
-    epOut: number | null;
+  device: USBDevice | null
+  epIn: number | null
+  epOut: number | null
 
-    private _registeredUsbListeners: boolean;
-    private _connectResolve: ((value: unknown) => void) | null;
-    private _connectReject: ((value: unknown) => void) | null;
-    private _disconnectResolve: ((value: unknown) => void) | null;
+  private _registeredUsbListeners: boolean
+  private _connectResolve: ((value: unknown) => void) | null
+  private _connectReject: ((value: unknown) => void) | null
+  private _disconnectResolve: ((value: unknown) => void) | null
 
-    /**
-     * Create a new fastboot device instance. This doesn't actually connect to
-     * any USB devices; call {@link connect} to do so.
-     */
-    constructor() {
-        this.device = null;
-        this.epIn = null;
-        this.epOut = null;
+  /**
+   * Create a new fastboot device instance. This doesn't actually connect to
+   * any USB devices; call {@link connect} to do so.
+   */
+  constructor() {
+    this.device = null
+    this.epIn = null
+    this.epOut = null
 
-        this._registeredUsbListeners = false;
-        this._connectResolve = null;
-        this._connectReject = null;
-        this._disconnectResolve = null;
+    this._registeredUsbListeners = false
+    this._connectResolve = null
+    this._connectReject = null
+    this._disconnectResolve = null
+  }
+
+  /**
+   * Returns whether a USB device is connected and ready for use.
+   */
+  get isConnected() {
+    return (
+      this.device !== null &&
+      this.device.opened &&
+      this.device.configurations[0].interfaces[0].claimed
+    )
+  }
+
+  /**
+   * Validate the current USB device's details and connect to it.
+   *
+   * @private
+   */
+  private async _validateAndConnectDevice() {
+    if (this.device === null) {
+      throw new UsbError('Attempted to connect to null device')
     }
 
-    /**
-     * Returns whether a USB device is connected and ready for use.
-     */
-    get isConnected() {
-        return (
-            this.device !== null &&
-            this.device.opened &&
-            this.device.configurations[0].interfaces[0].claimed
-        );
+    // Validate device
+    const ife = this.device!.configurations[0].interfaces[0].alternates[0]
+    if (ife.endpoints.length !== 2) {
+      throw new UsbError('Interface has wrong number of endpoints')
     }
 
-    /**
-     * Validate the current USB device's details and connect to it.
-     *
-     * @private
-     */
-    private async _validateAndConnectDevice() {
-        if (this.device === null) {
-            throw new UsbError("Attempted to connect to null device");
+    this.epIn = null
+    this.epOut = null
+    for (const endpoint of ife.endpoints) {
+      logVerbose(
+        `Checking endpoint: ` +
+          `endpointNumber=${endpoint.endpointNumber}, ` +
+          `direction=${endpoint.direction}, ` +
+          `type=${endpoint.type}, ` +
+          `packetSize=${endpoint.packetSize}`
+      )
+      if (endpoint.type !== 'bulk') {
+        throw new UsbError('Interface endpoint is not bulk')
+      }
+
+      if (endpoint.direction === 'in') {
+        if (this.epIn === null) {
+          this.epIn = endpoint.endpointNumber
+        } else {
+          throw new UsbError('Interface has multiple IN endpoints')
         }
-
-        // Validate device
-        const ife = this.device!.configurations[0].interfaces[0].alternates[0];
-        if (ife.endpoints.length !== 2) {
-            throw new UsbError("Interface has wrong number of endpoints");
+      } else if (endpoint.direction === 'out') {
+        if (this.epOut === null) {
+          this.epOut = endpoint.endpointNumber
+        } else {
+          throw new UsbError('Interface has multiple OUT endpoints')
         }
+      }
+    }
+    logVerbose(`Endpoints: in=${this.epIn}, out=${this.epOut}`)
 
-        this.epIn = null;
-        this.epOut = null;
-        for (const endpoint of ife.endpoints) {
-            logVerbose(
-                `Checking endpoint: ` +
-                    `endpointNumber=${endpoint.endpointNumber}, ` +
-                    `direction=${endpoint.direction}, ` +
-                    `type=${endpoint.type}, ` +
-                    `packetSize=${endpoint.packetSize}`,
-            );
-            if (endpoint.type !== "bulk") {
-                throw new UsbError("Interface endpoint is not bulk");
-            }
+    try {
+      await this.device!.open()
+      await this.device!.selectConfiguration(1)
+      await this.device!.claimInterface(0) // fastboot
+    } catch (error) {
+      // Propagate exception from waitForConnect()
+      if (this._connectReject !== null) {
+        this._connectReject(error)
+        this._connectResolve = null
+        this._connectReject = null
+      }
 
-            if (endpoint.direction === "in") {
-                if (this.epIn === null) {
-                    this.epIn = endpoint.endpointNumber;
-                } else {
-                    throw new UsbError("Interface has multiple IN endpoints");
-                }
-            } else if (endpoint.direction === "out") {
-                if (this.epOut === null) {
-                    this.epOut = endpoint.endpointNumber;
-                } else {
-                    throw new UsbError("Interface has multiple OUT endpoints");
-                }
-            }
+      throw error
+    }
+
+    // Return from waitForConnect()
+    if (this._connectResolve !== null) {
+      this._connectResolve(undefined)
+      this._connectResolve = null
+      this._connectReject = null
+    }
+  }
+
+  /**
+   * Wait for the current USB device to disconnect, if it's still connected.
+   * Returns immediately if no device is connected.
+   */
+  async waitForDisconnect() {
+    if (this.device === null) {
+      return
+    }
+
+    return await new Promise((resolve) => {
+      this._disconnectResolve = resolve
+    })
+  }
+
+  /**
+   * Wait for the USB device to connect. Returns at the next connection,
+   * regardless of whether the connected USB device matches the previous one.
+   *
+   * @param {ReconnectCallback} onReconnect - Callback to request device reconnection on Android.
+   */
+  async waitForConnect(onReconnect: ReconnectCallback = () => {}) {
+    // On Android, we need to request the user to reconnect the device manually
+    // because there is no support for automatic reconnection.
+    if (navigator.userAgent.includes('Android')) {
+      await this.waitForDisconnect()
+      onReconnect()
+    }
+
+    return await new Promise((resolve, reject) => {
+      this._connectResolve = resolve
+      this._connectReject = reject
+    })
+  }
+
+  /**
+   * Request the user to select a USB device and connect to it using the
+   * fastboot protocol.
+   *
+   * @throws {UsbError}
+   */
+  async connect() {
+    this.device = await navigator.usb.requestDevice({
+      filters: [
+        {
+          classCode: FASTBOOT_USB_CLASS,
+          subclassCode: FASTBOOT_USB_SUBCLASS,
+          protocolCode: FASTBOOT_USB_PROTOCOL
         }
-        logVerbose(`Endpoints: in=${this.epIn}, out=${this.epOut}`);
+      ]
+    })
+    logDebug('Using USB device:', this.device)
 
+    if (!this._registeredUsbListeners) {
+      navigator.usb.addEventListener('disconnect', (event) => {
+        if (event.device === this.device) {
+          logDebug('USB device disconnected')
+          if (this._disconnectResolve !== null) {
+            this._disconnectResolve(undefined)
+            this._disconnectResolve = null
+          }
+        }
+      })
+
+      navigator.usb.addEventListener('connect', async (event) => {
+        logDebug('USB device connected')
+        this.device = event.device
+
+        // Check whether waitForConnect() is pending and save it for later
+        const hasPromiseReject = this._connectReject !== null
         try {
-            await this.device!.open();
-            await this.device!.selectConfiguration(1);
-            await this.device!.claimInterface(0); // fastboot
+          await this._validateAndConnectDevice()
         } catch (error) {
-            // Propagate exception from waitForConnect()
-            if (this._connectReject !== null) {
-                this._connectReject(error);
-                this._connectResolve = null;
-                this._connectReject = null;
-            }
-
-            throw error;
+          // Only rethrow errors from the event handler if waitForConnect()
+          // didn't already handle them
+          if (!hasPromiseReject) {
+            throw error
+          }
         }
+      })
 
-        // Return from waitForConnect()
-        if (this._connectResolve !== null) {
-            this._connectResolve(undefined);
-            this._connectResolve = null;
-            this._connectReject = null;
-        }
+      this._registeredUsbListeners = true
     }
 
-    /**
-     * Wait for the current USB device to disconnect, if it's still connected.
-     * Returns immediately if no device is connected.
-     */
-    async waitForDisconnect() {
-        if (this.device === null) {
-            return;
+    await this._validateAndConnectDevice()
+  }
+
+  /**
+   * Read a raw command response from the bootloader.
+   *
+   * @private
+   * @returns {Promise<CommandResponse>} Object containing response text and data size, if any.
+   * @throws {FastbootError}
+   */
+  private async _readResponse(): Promise<CommandResponse> {
+    const respData = {
+      text: ''
+    } as CommandResponse
+    let respStatus
+
+    do {
+      const respPacket = await this.device!.transferIn(this.epIn!, 64)
+      const response = new TextDecoder().decode(respPacket.data)
+
+      respStatus = response.substring(0, 4)
+      const respMessage = response.substring(4)
+      logDebug(`Response: ${respStatus} ${respMessage}`)
+
+      if (respStatus === 'OKAY') {
+        // OKAY = end of response for this command
+        respData.text += respMessage
+      } else if (respStatus === 'INFO') {
+        // INFO = additional info line
+        respData.text += respMessage + '\n'
+      } else if (respStatus === 'DATA') {
+        // DATA = hex string, but it's returned separately for safety
+        respData.dataSize = respMessage
+      } else {
+        // Assume FAIL or garbage data
+        throw new FastbootError(respStatus, respMessage)
+      }
+      // INFO = more packets are coming
+    } while (respStatus === 'INFO')
+
+    return respData
+  }
+
+  /**
+   * Send a textual command to the bootloader and read the response.
+   * This is in raw fastboot format, not AOSP fastboot syntax.
+   *
+   * @param {string} command - The command to send.
+   * @returns {Promise<CommandResponse>} Object containing response text and data size, if any.
+   * @throws {FastbootError}
+   */
+  async runCommand(command: string): Promise<CommandResponse> {
+    // Command and response length is always 64 bytes regardless of protocol
+    if (command.length > 64) {
+      throw new RangeError()
+    }
+
+    // Send raw UTF-8 command
+    const cmdPacket = new TextEncoder().encode(command)
+    await this.device!.transferOut(this.epOut!, cmdPacket)
+    logDebug('Command:', command)
+
+    return this._readResponse()
+  }
+
+  /**
+   * Read the value of a bootloader variable. Returns undefined if the variable
+   * does not exist.
+   *
+   * @param {string} varName - The name of the variable to get.
+   * @returns {Promise<string>} Textual content of the variable.
+   * @throws {FastbootError}
+   */
+  async getVariable(varName: string): Promise<string | null> {
+    let resp
+    try {
+      resp = (await runWithTimeout(this.runCommand(`getvar:${varName}`), GETVAR_TIMEOUT)).text
+    } catch (error) {
+      // Some bootloaders return FAIL instead of empty responses, despite
+      // what the spec says. Normalize it here.
+      if (error instanceof FastbootError && error.status == 'FAIL') {
+        resp = null
+      } else {
+        throw error
+      }
+    }
+
+    // Some bootloaders send whitespace around some variables.
+    // According to the spec, non-existent variables should return empty
+    // responses
+    return resp ? resp.trim() : null
+  }
+
+  /**
+   * Get the maximum download size for a single payload, in bytes.
+   *
+   * @private
+   * @returns {Promise<number>}
+   * @throws {FastbootError}
+   */
+  private async _getDownloadSize(): Promise<number> {
+    try {
+      const resp = (await this.getVariable('max-download-size'))!.toLowerCase()
+      if (resp) {
+        // AOSP fastboot requires hex
+        return Math.min(parseInt(resp, 16), MAX_DOWNLOAD_SIZE)
+      }
+    } catch {
+      /* Failed = no value, fallthrough */
+    }
+
+    // FAIL or empty variable means no max, set a reasonable limit to conserve memory
+    return DEFAULT_DOWNLOAD_SIZE
+  }
+
+  /**
+   * Send a raw data payload to the bootloader.
+   *
+   * @private
+   */
+  private async _sendRawPayload(buffer: ArrayBuffer, onProgress: FlashProgressCallback) {
+    let i = 0
+    let remainingBytes = buffer.byteLength
+    while (remainingBytes > 0) {
+      const chunk = buffer.slice(i * BULK_TRANSFER_SIZE, (i + 1) * BULK_TRANSFER_SIZE)
+      if (i % 1000 === 0) {
+        logVerbose(
+          `  Sending ${chunk.byteLength} bytes to endpoint, ${remainingBytes} remaining, i=${i}`
+        )
+      }
+      if (i % 10 === 0) {
+        onProgress((buffer.byteLength - remainingBytes) / buffer.byteLength)
+      }
+
+      await this.device!.transferOut(this.epOut!, chunk)
+
+      remainingBytes -= chunk.byteLength
+      i += 1
+    }
+
+    onProgress(1.0)
+  }
+
+  /**
+   * Upload a payload to the bootloader for later use, e.g. flashing.
+   * Does not handle raw images, flashing, or splitting.
+   *
+   * @param {string} partition - Name of the partition the payload is intended for.
+   * @param {ArrayBuffer} buffer - Buffer containing the data to upload.
+   * @param {FlashProgressCallback} onProgress - Callback for upload progress updates.
+   * @throws {FastbootError}
+   */
+  async upload(
+    partition: string,
+    buffer: ArrayBuffer,
+    onProgress: FlashProgressCallback = () => {}
+  ) {
+    logDebug(`Uploading single sparse to ${partition}: ${buffer.byteLength} bytes`)
+
+    // Bootloader requires an 8-digit hex number
+    const xferHex = buffer.byteLength.toString(16).padStart(8, '0')
+    if (xferHex.length !== 8) {
+      throw new FastbootError('FAIL', `Transfer size overflow: ${xferHex} is more than 8 digits`)
+    }
+
+    // Check with the device and make sure size matches
+    const downloadResp = await this.runCommand(`download:${xferHex}`)
+    if (downloadResp.dataSize === undefined) {
+      throw new FastbootError(
+        'FAIL',
+        `Unexpected response to download command: ${downloadResp.text}`
+      )
+    }
+    const downloadSize = parseInt(downloadResp.dataSize!, 16)
+    if (downloadSize !== buffer.byteLength) {
+      throw new FastbootError(
+        'FAIL',
+        `Bootloader wants ${downloadSize} bytes, requested to send ${buffer.byteLength} bytes`
+      )
+    }
+
+    logDebug(`Sending payload: ${buffer.byteLength} bytes`)
+    await this._sendRawPayload(buffer, onProgress)
+
+    logDebug('Payload sent, waiting for response...')
+    await this._readResponse()
+  }
+
+  /**
+   * Reboot to the given target, and optionally wait for the device to
+   * reconnect.
+   *
+   * @param {string} target - Where to reboot to, i.e. fastboot or bootloader.
+   * @param {boolean} wait - Whether to wait for the device to reconnect.
+   * @param {ReconnectCallback} onReconnect - Callback to request device reconnection, if wait is enabled.
+   */
+  async reboot(
+    target: string = '',
+    wait: boolean = false,
+    onReconnect: ReconnectCallback = () => {}
+  ) {
+    if (target.length > 0) {
+      await this.runCommand(`reboot-${target}`)
+    } else {
+      await this.runCommand('reboot')
+    }
+
+    if (wait) {
+      await this.waitForConnect(onReconnect)
+    }
+  }
+
+  /**
+   * Reboot to the given target and switch slot, and optionally wait for the device to
+   * reconnect.
+   *
+   * @param {string} target - Where to reboot to, i.e. fastboot or bootloader.
+   * @param {boolean} wait - Whether to wait for the device to reconnect.
+   * @param {ReconnectCallback} onReconnect - Callback to request device reconnection, if wait is enabled.
+   */
+  async rebootSwitchSlot(
+    target: string = '',
+    wait: boolean = false,
+    onReconnect: ReconnectCallback = () => {}
+  ) {
+    const otherSlot = await this.getOtherSlot()
+    await this.runCommand(`set_active:${otherSlot}`)
+    if (target.length > 0) {
+      await this.runCommand(`reboot-${target}`)
+    } else {
+      await this.runCommand('reboot')
+    }
+
+    if (wait) {
+      await this.waitForConnect(onReconnect)
+    }
+  }
+
+  /**
+   * Flash the given Blob to the given partition and slot on the device. Any image
+   * format supported by the bootloader is allowed, e.g. sparse or raw images.
+   * Large raw images will be converted to sparse images automatically, and
+   * large sparse images will be split and flashed in multiple passes
+   * depending on the bootloader's payload size limit.
+   *
+   * @param {string} partition - The name of the partition to flash.
+   * @param {string} slot - The slot to flash, defaults to current
+   * @param {Blob} blob - The Blob to retrieve data from.
+   * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+   * @throws {FastbootError}
+   */
+  async flashBlob(
+    partition: string,
+    slot: string = 'current',
+    blob: Blob,
+    onProgress: FlashProgressCallback = () => {}
+  ) {
+    // Check slot if partition is A/B
+    if ((await this.getVariable(`has-slot:${partition}`)) === 'yes') {
+      const currentSlot = await this.getSlot()
+      if (slot === 'current') {
+        // Default behavior, flash current slot
+        partition += '_' + currentSlot
+      } else if (slot === 'other') {
+        // Allow flashing the other slot
+        const otherSlot = await this.getOtherSlot()
+        partition += '_' + otherSlot
+      } else {
+        // Allow flashing a particular slot directly
+        if (slot === 'a' || slot === 'b') {
+          partition += '_' + slot
+        } else {
+          throw new FastbootError('FAIL', `Unknown Slot: ${slot}`)
         }
+      }
+    }
+    logDebug(`Flashing partition ${partition}`)
 
-        return await new Promise((resolve) => {
-            this._disconnectResolve = resolve;
-        });
+    const maxDlSize = await this._getDownloadSize()
+    const fileHeader = await common.readBlobAsBuffer(blob.slice(0, Sparse.FILE_HEADER_SIZE))
+
+    let totalBytes = blob.size
+    let isSparse = false
+    try {
+      const sparseHeader = Sparse.parseFileHeader(fileHeader)
+      if (sparseHeader !== null) {
+        totalBytes = sparseHeader.blocks * sparseHeader.blockSize
+        isSparse = true
+      }
+    } catch {
+      // ImageError = invalid, so keep blob.size
     }
 
-    /**
-     * Wait for the USB device to connect. Returns at the next connection,
-     * regardless of whether the connected USB device matches the previous one.
-     *
-     * @param {ReconnectCallback} onReconnect - Callback to request device reconnection on Android.
-     */
-    async waitForConnect(onReconnect: ReconnectCallback = () => {}) {
-        // On Android, we need to request the user to reconnect the device manually
-        // because there is no support for automatic reconnection.
-        if (navigator.userAgent.includes("Android")) {
-            await this.waitForDisconnect();
-            onReconnect();
-        }
-
-        return await new Promise((resolve, reject) => {
-            this._connectResolve = resolve;
-            this._connectReject = reject;
-        });
+    // Logical partitions need to be resized before flashing because they're
+    // sized perfectly to the payload.
+    if ((await this.getVariable(`is-logical:${partition}`)) === 'yes') {
+      // As per AOSP fastboot, we reset the partition to 0 bytes first
+      // to optimize extent allocation.
+      await this.runCommand(`resize-logical-partition:${partition}:0`)
+      // Set the actual size
+      await this.runCommand(`resize-logical-partition:${partition}:${totalBytes}`)
     }
 
-    /**
-     * Request the user to select a USB device and connect to it using the
-     * fastboot protocol.
-     *
-     * @throws {UsbError}
-     */
-    async connect() {
-        this.device = await navigator.usb.requestDevice({
-            filters: [
-                {
-                    classCode: FASTBOOT_USB_CLASS,
-                    subclassCode: FASTBOOT_USB_SUBCLASS,
-                    protocolCode: FASTBOOT_USB_PROTOCOL,
-                },
-            ],
-        });
-        logDebug("Using USB device:", this.device);
-
-        if (!this._registeredUsbListeners) {
-            navigator.usb.addEventListener("disconnect", (event) => {
-                if (event.device === this.device) {
-                    logDebug("USB device disconnected");
-                    if (this._disconnectResolve !== null) {
-                        this._disconnectResolve(undefined);
-                        this._disconnectResolve = null;
-                    }
-                }
-            });
-
-            navigator.usb.addEventListener("connect", async (event) => {
-                logDebug("USB device connected");
-                this.device = event.device;
-
-                // Check whether waitForConnect() is pending and save it for later
-                const hasPromiseReject = this._connectReject !== null;
-                try {
-                    await this._validateAndConnectDevice();
-                } catch (error) {
-                    // Only rethrow errors from the event handler if waitForConnect()
-                    // didn't already handle them
-                    if (!hasPromiseReject) {
-                        throw error;
-                    }
-                }
-            });
-
-            this._registeredUsbListeners = true;
-        }
-
-        await this._validateAndConnectDevice();
+    // Convert image to sparse (for splitting) if it exceeds the size limit
+    if (blob.size > maxDlSize && !isSparse) {
+      logDebug(`${partition} image is raw, converting to sparse`)
+      blob = await Sparse.fromRaw(blob)
     }
 
-    /**
-     * Read a raw command response from the bootloader.
-     *
-     * @private
-     * @returns {Promise<CommandResponse>} Object containing response text and data size, if any.
-     * @throws {FastbootError}
-     */
-    private async _readResponse(): Promise<CommandResponse> {
-        const respData = {
-            text: "",
-        } as CommandResponse;
-        let respStatus;
+    logDebug(`Flashing ${blob.size} bytes to ${partition}, ${maxDlSize} bytes per split`)
+    let splits = 0
+    let sentBytes = 0
+    for await (const split of Sparse.splitBlob(blob, maxDlSize)) {
+      await this.upload(partition, split.data, (progress) => {
+        onProgress((sentBytes + progress * split.bytes) / totalBytes)
+      })
 
-        do {
-            const respPacket = await this.device!.transferIn(this.epIn!, 64);
-            const response = new TextDecoder().decode(respPacket.data);
+      logDebug('Flashing payload...')
+      await this.runCommand(`flash:${partition}`)
 
-            respStatus = response.substring(0, 4);
-            const respMessage = response.substring(4);
-            logDebug(`Response: ${respStatus} ${respMessage}`);
-
-            if (respStatus === "OKAY") {
-                // OKAY = end of response for this command
-                respData.text += respMessage;
-            } else if (respStatus === "INFO") {
-                // INFO = additional info line
-                respData.text += respMessage + "\n";
-            } else if (respStatus === "DATA") {
-                // DATA = hex string, but it's returned separately for safety
-                respData.dataSize = respMessage;
-            } else {
-                // Assume FAIL or garbage data
-                throw new FastbootError(respStatus, respMessage);
-            }
-            // INFO = more packets are coming
-        } while (respStatus === "INFO");
-
-        return respData;
+      splits += 1
+      sentBytes += split.bytes
     }
 
-    /**
-     * Send a textual command to the bootloader and read the response.
-     * This is in raw fastboot format, not AOSP fastboot syntax.
-     *
-     * @param {string} command - The command to send.
-     * @returns {Promise<CommandResponse>} Object containing response text and data size, if any.
-     * @throws {FastbootError}
-     */
-    async runCommand(command: string): Promise<CommandResponse> {
-        // Command and response length is always 64 bytes regardless of protocol
-        if (command.length > 64) {
-            throw new RangeError();
-        }
+    logDebug(`Flashed ${partition} with ${splits} split(s)`)
+  }
 
-        // Send raw UTF-8 command
-        const cmdPacket = new TextEncoder().encode(command);
-        await this.device!.transferOut(this.epOut!, cmdPacket);
-        logDebug("Command:", command);
+  /**
+   * Boot the given Blob on the device.
+   * Equivalent to `fastboot boot boot.img`.
+   *
+   * @param {Blob} blob - The Blob to retrieve data from.
+   * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+   * @throws {FastbootError}
+   */
+  async bootBlob(blob: Blob, onProgress: FlashProgressCallback = () => {}) {
+    logDebug(`Booting ${blob.size} bytes image`)
 
-        return this._readResponse();
+    const data = await common.readBlobAsBuffer(blob)
+    await this.upload('boot.img', data, onProgress)
+
+    logDebug('Booting payload...')
+    await this.runCommand('boot')
+
+    logDebug(`Booted ${blob.size} bytes image`)
+  }
+
+  /**
+   * Flash the given factory images zip onto the device, with automatic handling
+   * of firmware, system, and logical partitions as AOSP fastboot and
+   * flash-all.sh would do.
+   * Equivalent to `fastboot update name.zip`.
+   *
+   * @param {Blob} blob - Blob containing the zip file to flash.
+   * @param {boolean} wipe - Whether to wipe super and userdata. Equivalent to `fastboot -w`.
+   * @param {ReconnectCallback} onReconnect - Callback to request device reconnection.
+   * @param {FactoryProgressCallback} onProgress - Progress callback for image flashing.
+   */
+  async flashFactoryZip(
+    blob: Blob,
+    wipe: boolean,
+    onReconnect: ReconnectCallback,
+    onProgress: FactoryProgressCallback = () => {}
+  ) {
+    return await flashZip(this, blob, wipe, onReconnect, onProgress)
+  }
+
+  /**
+   * Wipe the super partition by flashing a minimal sparse image derived from
+   * the LP metadata in the given super_empty.img Blob.  This erases all logical
+   * partition data and resets the partition table to the empty layout encoded
+   * in the image.
+   *
+   * The device must be in the bootloader (not fastbootd) when this is called.
+   *
+   * @param {Blob} blob - Blob containing super_empty.img.
+   * @param {string} slot - The slot to target ("current", "a", or "b").
+   * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
+   * @throws {FastbootError}
+   */
+  async wipeSuper(
+    blob: Blob,
+    slot: string = 'current',
+    onProgress: FlashProgressCallback = () => {}
+  ) {
+    const metadata = await Lp.readFromImageBlob(blob)
+
+    // Resolve slot
+    let resolvedSlot = slot
+    if (slot === 'current') {
+      resolvedSlot = (await this.getSlot()) ?? 'a'
+    } else if (slot === 'other') {
+      resolvedSlot = await this.getOtherSlot()
+    }
+    logDebug(`Targeting slot "${resolvedSlot}"`)
+
+    const images = await Lp.buildWipeSuperImages(metadata)
+
+    // For retrofit devices the primary block device is not named "super".
+    // Fastboot sends "oem allow-flash-super" to allow flashing.
+    const superDevice = Lp.getMetadataSuperBlockDevice(metadata)
+    if (superDevice !== null && Lp.getBlockDevicePartitionName(superDevice) !== 'super') {
+      try {
+        await this.runCommand('oem allow-flash-super')
+      } catch {
+        // Not all bootloaders support this command
+      }
     }
 
-    /**
-     * Read the value of a bootloader variable. Returns undefined if the variable
-     * does not exist.
-     *
-     * @param {string} varName - The name of the variable to get.
-     * @returns {Promise<string>} Textual content of the variable.
-     * @throws {FastbootError}
-     */
-    async getVariable(varName: string): Promise<string | null> {
-        let resp;
-        try {
-            resp = (
-                await runWithTimeout(
-                    this.runCommand(`getvar:${varName}`),
-                    GETVAR_TIMEOUT,
-                )
-            ).text;
-        } catch (error) {
-            // Some bootloaders return FAIL instead of empty responses, despite
-            // what the spec says. Normalize it here.
-            if (error instanceof FastbootError && error.status == "FAIL") {
-                resp = null;
-            } else {
-                throw error;
-            }
-        }
+    for (const image of images) {
+      let flashPartition = image.partitionName
 
-        // Some bootloaders send whitespace around some variables.
-        // According to the spec, non-existent variables should return empty
-        // responses
-        return resp ? resp.trim() : null;
-    }
-
-    /**
-     * Get the maximum download size for a single payload, in bytes.
-     *
-     * @private
-     * @returns {Promise<number>}
-     * @throws {FastbootError}
-     */
-    private async _getDownloadSize(): Promise<number> {
-        try {
-            const resp = (await this.getVariable(
-                "max-download-size",
-            ))!.toLowerCase();
-            if (resp) {
-                // AOSP fastboot requires hex
-                return Math.min(parseInt(resp, 16), MAX_DOWNLOAD_SIZE);
-            }
-        } catch {
-            /* Failed = no value, fallthrough */
-        }
-
-        // FAIL or empty variable means no max, set a reasonable limit to conserve memory
-        return DEFAULT_DOWNLOAD_SIZE;
-    }
-
-    /**
-     * Send a raw data payload to the bootloader.
-     *
-     * @private
-     */
-    private async _sendRawPayload(
-        buffer: ArrayBuffer,
-        onProgress: FlashProgressCallback,
-    ) {
-        let i = 0;
-        let remainingBytes = buffer.byteLength;
-        while (remainingBytes > 0) {
-            const chunk = buffer.slice(
-                i * BULK_TRANSFER_SIZE,
-                (i + 1) * BULK_TRANSFER_SIZE,
-            );
-            if (i % 1000 === 0) {
-                logVerbose(
-                    `  Sending ${chunk.byteLength} bytes to endpoint, ${remainingBytes} remaining, i=${i}`,
-                );
-            }
-            if (i % 10 === 0) {
-                onProgress(
-                    (buffer.byteLength - remainingBytes) / buffer.byteLength,
-                );
-            }
-
-            await this.device!.transferOut(this.epOut!, chunk);
-
-            remainingBytes -= chunk.byteLength;
-            i += 1;
-        }
-
-        onProgress(1.0);
-    }
-
-    /**
-     * Upload a payload to the bootloader for later use, e.g. flashing.
-     * Does not handle raw images, flashing, or splitting.
-     *
-     * @param {string} partition - Name of the partition the payload is intended for.
-     * @param {ArrayBuffer} buffer - Buffer containing the data to upload.
-     * @param {FlashProgressCallback} onProgress - Callback for upload progress updates.
-     * @throws {FastbootError}
-     */
-    async upload(
-        partition: string,
-        buffer: ArrayBuffer,
-        onProgress: FlashProgressCallback = () => {},
-    ) {
+      // Always query has-slot, even when the metadata flag requests slot-suffixing.
+      // This matches AOSP do_for_partition: respect the device's own answer for
+      // has-slot and only warn when force_slot is set but the partition has no slots.
+      const hasSlot = await this.getVariable(`has-slot:${image.partitionName}`)
+      if (hasSlot === 'yes') {
+        flashPartition = `${image.partitionName}_${resolvedSlot}`
+      } else if (image.forceSlot) {
         logDebug(
-            `Uploading single sparse to ${partition}: ${buffer.byteLength} bytes`,
-        );
+          `Warning: ${image.partitionName} does not support slots but slot suffix was requested`
+        )
+      }
 
-        // Bootloader requires an 8-digit hex number
-        const xferHex = buffer.byteLength.toString(16).padStart(8, "0");
-        if (xferHex.length !== 8) {
-            throw new FastbootError(
-                "FAIL",
-                `Transfer size overflow: ${xferHex} is more than 8 digits`,
-            );
-        }
-
-        // Check with the device and make sure size matches
-        const downloadResp = await this.runCommand(`download:${xferHex}`);
-        if (downloadResp.dataSize === undefined) {
-            throw new FastbootError(
-                "FAIL",
-                `Unexpected response to download command: ${downloadResp.text}`,
-            );
-        }
-        const downloadSize = parseInt(downloadResp.dataSize!, 16);
-        if (downloadSize !== buffer.byteLength) {
-            throw new FastbootError(
-                "FAIL",
-                `Bootloader wants ${downloadSize} bytes, requested to send ${buffer.byteLength} bytes`,
-            );
-        }
-
-        logDebug(`Sending payload: ${buffer.byteLength} bytes`);
-        await this._sendRawPayload(buffer, onProgress);
-
-        logDebug("Payload sent, waiting for response...");
-        await this._readResponse();
+      logDebug(`Flashing ${image.data.byteLength} bytes to "${flashPartition}"`)
+      await this.upload(flashPartition, image.data, onProgress)
+      await this.runCommand(`flash:${flashPartition}`)
     }
+  }
 
-    /**
-     * Reboot to the given target, and optionally wait for the device to
-     * reconnect.
-     *
-     * @param {string} target - Where to reboot to, i.e. fastboot or bootloader.
-     * @param {boolean} wait - Whether to wait for the device to reconnect.
-     * @param {ReconnectCallback} onReconnect - Callback to request device reconnection, if wait is enabled.
-     */
-    async reboot(
-        target: string = "",
-        wait: boolean = false,
-        onReconnect: ReconnectCallback = () => {},
-    ) {
-        if (target.length > 0) {
-            await this.runCommand(`reboot-${target}`);
-        } else {
-            await this.runCommand("reboot");
-        }
+  /**
+   * Determine the current slot
+   */
+  async getSlot() {
+    const currentSlot = await this.getVariable('current-slot')
+    return currentSlot?.slice(-1)
+  }
 
-        if (wait) {
-            await this.waitForConnect(onReconnect);
-        }
+  /**
+   * Determine the other slot
+   * Hardcoded for A/B currently as that's what we mostly have in the field
+   *
+   */
+  async getOtherSlot() {
+    const currentSlot = await this.getSlot()
+    if (currentSlot === 'a') {
+      return 'b'
+    } else if (currentSlot === 'b') {
+      return 'a'
+    } else {
+      throw new FastbootError(
+        'FAIL',
+        `Unable to determine other slot, current slot: ${currentSlot}`
+      )
     }
-
-    /**
-     * Reboot to the given target and switch slot, and optionally wait for the device to
-     * reconnect.
-     *
-     * @param {string} target - Where to reboot to, i.e. fastboot or bootloader.
-     * @param {boolean} wait - Whether to wait for the device to reconnect.
-     * @param {ReconnectCallback} onReconnect - Callback to request device reconnection, if wait is enabled.
-     */
-    async rebootSwitchSlot(
-        target: string = "",
-        wait: boolean = false,
-        onReconnect: ReconnectCallback = () => {},
-    ) {
-        const otherSlot = await this.getOtherSlot();
-        await this.runCommand(`set_active:${otherSlot}`);
-        if (target.length > 0) {
-            await this.runCommand(`reboot-${target}`);
-        } else {
-            await this.runCommand("reboot");
-        }
-
-        if (wait) {
-            await this.waitForConnect(onReconnect);
-        }
-    }
-
-    /**
-     * Flash the given Blob to the given partition and slot on the device. Any image
-     * format supported by the bootloader is allowed, e.g. sparse or raw images.
-     * Large raw images will be converted to sparse images automatically, and
-     * large sparse images will be split and flashed in multiple passes
-     * depending on the bootloader's payload size limit.
-     *
-     * @param {string} partition - The name of the partition to flash.
-     * @param {string} slot - The slot to flash, defaults to current
-     * @param {Blob} blob - The Blob to retrieve data from.
-     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
-     * @throws {FastbootError}
-     */
-    async flashBlob(
-        partition: string,
-        slot: string = "current",
-        blob: Blob,
-        onProgress: FlashProgressCallback = () => {},
-    ) {
-        // Check slot if partition is A/B
-        if ((await this.getVariable(`has-slot:${partition}`)) === "yes") {
-            const currentSlot = await this.getSlot();
-            if (slot === "current") {
-                // Default behavior, flash current slot
-                partition += "_" + currentSlot;
-            } else if (slot === "other") {
-                // Allow flashing the other slot
-                const otherSlot = await this.getOtherSlot();
-                partition += "_" + otherSlot;
-            } else {
-                // Allow flashing a particular slot directly
-                if (slot === "a" || slot === "b") {
-                    partition += "_" + slot;
-                } else {
-                    throw new FastbootError("FAIL", `Unknown Slot: ${slot}`);
-                }
-            }
-        }
-        logDebug(`Flashing partition ${partition}`);
-
-        const maxDlSize = await this._getDownloadSize();
-        const fileHeader = await common.readBlobAsBuffer(
-            blob.slice(0, Sparse.FILE_HEADER_SIZE),
-        );
-
-        let totalBytes = blob.size;
-        let isSparse = false;
-        try {
-            const sparseHeader = Sparse.parseFileHeader(fileHeader);
-            if (sparseHeader !== null) {
-                totalBytes = sparseHeader.blocks * sparseHeader.blockSize;
-                isSparse = true;
-            }
-        } catch {
-            // ImageError = invalid, so keep blob.size
-        }
-
-        // Logical partitions need to be resized before flashing because they're
-        // sized perfectly to the payload.
-        if ((await this.getVariable(`is-logical:${partition}`)) === "yes") {
-            // As per AOSP fastboot, we reset the partition to 0 bytes first
-            // to optimize extent allocation.
-            await this.runCommand(`resize-logical-partition:${partition}:0`);
-            // Set the actual size
-            await this.runCommand(
-                `resize-logical-partition:${partition}:${totalBytes}`,
-            );
-        }
-
-        // Convert image to sparse (for splitting) if it exceeds the size limit
-        if (blob.size > maxDlSize && !isSparse) {
-            logDebug(`${partition} image is raw, converting to sparse`);
-            blob = await Sparse.fromRaw(blob);
-        }
-
-        logDebug(
-            `Flashing ${blob.size} bytes to ${partition}, ${maxDlSize} bytes per split`,
-        );
-        let splits = 0;
-        let sentBytes = 0;
-        for await (const split of Sparse.splitBlob(blob, maxDlSize)) {
-            await this.upload(partition, split.data, (progress) => {
-                onProgress((sentBytes + progress * split.bytes) / totalBytes);
-            });
-
-            logDebug("Flashing payload...");
-            await this.runCommand(`flash:${partition}`);
-
-            splits += 1;
-            sentBytes += split.bytes;
-        }
-
-        logDebug(`Flashed ${partition} with ${splits} split(s)`);
-    }
-
-    /**
-     * Boot the given Blob on the device.
-     * Equivalent to `fastboot boot boot.img`.
-     *
-     * @param {Blob} blob - The Blob to retrieve data from.
-     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
-     * @throws {FastbootError}
-     */
-    async bootBlob(blob: Blob, onProgress: FlashProgressCallback = () => {}) {
-        logDebug(`Booting ${blob.size} bytes image`);
-
-        const data = await common.readBlobAsBuffer(blob);
-        await this.upload("boot.img", data, onProgress);
-
-        logDebug("Booting payload...");
-        await this.runCommand("boot");
-
-        logDebug(`Booted ${blob.size} bytes image`);
-    }
-
-    /**
-     * Flash the given factory images zip onto the device, with automatic handling
-     * of firmware, system, and logical partitions as AOSP fastboot and
-     * flash-all.sh would do.
-     * Equivalent to `fastboot update name.zip`.
-     *
-     * @param {Blob} blob - Blob containing the zip file to flash.
-     * @param {boolean} wipe - Whether to wipe super and userdata. Equivalent to `fastboot -w`.
-     * @param {ReconnectCallback} onReconnect - Callback to request device reconnection.
-     * @param {FactoryProgressCallback} onProgress - Progress callback for image flashing.
-     */
-    async flashFactoryZip(
-        blob: Blob,
-        wipe: boolean,
-        onReconnect: ReconnectCallback,
-        onProgress: FactoryProgressCallback = () => {},
-    ) {
-        return await flashZip(this, blob, wipe, onReconnect, onProgress);
-    }
-
-    /**
-     * Wipe the super partition by flashing a minimal sparse image derived from
-     * the LP metadata in the given super_empty.img Blob.  This erases all logical
-     * partition data and resets the partition table to the empty layout encoded
-     * in the image.
-     *
-     * The device must be in the bootloader (not fastbootd) when this is called.
-     *
-     * @param {Blob} blob - Blob containing super_empty.img.
-     * @param {string} slot - The slot to target ("current", "a", or "b").
-     * @param {FlashProgressCallback} onProgress - Callback for flashing progress updates.
-     * @throws {FastbootError}
-     */
-    async wipeSuper(
-        blob: Blob,
-        slot: string = "current",
-        onProgress: FlashProgressCallback = () => {},
-    ) {
-        const metadata = await Lp.readFromImageBlob(blob);
-
-        // Resolve slot
-        let resolvedSlot = slot;
-        if (slot === "current") {
-            resolvedSlot = (await this.getSlot()) ?? "a";
-        } else if (slot === "other") {
-            resolvedSlot = await this.getOtherSlot();
-        }
-        logDebug(`Targeting slot "${resolvedSlot}"`);
-
-        const images = await Lp.buildWipeSuperImages(metadata);
-
-        // For retrofit devices the primary block device is not named "super".
-        // Fastboot sends "oem allow-flash-super" to allow flashing.
-        const superDevice = Lp.getMetadataSuperBlockDevice(metadata);
-        if (
-            superDevice !== null &&
-            Lp.getBlockDevicePartitionName(superDevice) !== "super"
-        ) {
-            try {
-                await this.runCommand("oem allow-flash-super");
-            } catch {
-                // Not all bootloaders support this command
-            }
-        }
-
-        for (const image of images) {
-            let flashPartition = image.partitionName;
-
-            // Always query has-slot, even when the metadata flag requests slot-suffixing.
-            // This matches AOSP do_for_partition: respect the device's own answer for
-            // has-slot and only warn when force_slot is set but the partition has no slots.
-            const hasSlot = await this.getVariable(
-                `has-slot:${image.partitionName}`,
-            );
-            if (hasSlot === "yes") {
-                flashPartition = `${image.partitionName}_${resolvedSlot}`;
-            } else if (image.forceSlot) {
-                logDebug(
-                    `Warning: ${image.partitionName} does not support slots but slot suffix was requested`,
-                );
-            }
-
-            logDebug(
-                `Flashing ${image.data.byteLength} bytes to "${flashPartition}"`,
-            );
-            await this.upload(flashPartition, image.data, onProgress);
-            await this.runCommand(`flash:${flashPartition}`);
-        }
-    }
-
-    /**
-     * Determine the current slot
-     */
-    async getSlot() {
-        const currentSlot = await this.getVariable("current-slot");
-        return currentSlot?.slice(-1);
-    }
-
-    /**
-     * Determine the other slot
-     * Hardcoded for A/B currently as that's what we mostly have in the field
-     *
-     */
-    async getOtherSlot() {
-        const currentSlot = await this.getSlot();
-        if (currentSlot === "a") {
-            return "b";
-        } else if (currentSlot === "b") {
-            return "a";
-        } else {
-            throw new FastbootError(
-                "FAIL",
-                `Unable to determine other slot, current slot: ${currentSlot}`,
-            );
-        }
-    }
+  }
 }

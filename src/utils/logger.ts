@@ -1,24 +1,24 @@
 export enum DebugLevel {
-    Silent = 0,
-    Debug,
-    Verbose,
+  Silent = 0,
+  Debug,
+  Verbose
 }
 
-export type DebugLogger = (...data: unknown[]) => void;
+export type DebugLogger = (...data: unknown[]) => void
 
-let debugLevel = DebugLevel.Silent;
-let debugLogger = console.log;
+let debugLevel = DebugLevel.Silent
+let debugLogger = console.log
 
 export function logDebug(...data: unknown[]) {
-    if (debugLevel >= 1) {
-        debugLogger(...data);
-    }
+  if (debugLevel >= 1) {
+    debugLogger(...data)
+  }
 }
 
 export function logVerbose(...data: unknown[]) {
-    if (debugLevel >= 2) {
-        debugLogger(...data);
-    }
+  if (debugLevel >= 2) {
+    debugLogger(...data)
+  }
 }
 
 /**
@@ -30,7 +30,7 @@ export function logVerbose(...data: unknown[]) {
  * @param {number} level - Debug level to use.
  */
 export function setDebugLevel(level: DebugLevel) {
-    debugLevel = level;
+  debugLevel = level
 }
 
 /**
@@ -39,5 +39,5 @@ export function setDebugLevel(level: DebugLevel) {
  * @param {DebugLogger} logger - Debug logger function to use.
  */
 export function setDebugLogger(logger: DebugLogger) {
-    debugLogger = logger;
+  debugLogger = logger
 }

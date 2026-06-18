@@ -56,3 +56,14 @@ export class UsbError extends Error {
     this.name = 'UsbError'
   }
 }
+
+/**
+ * Exception class for re-lock attempts blocked because they would trigger
+ * anti-rollback protection and brick the device.
+ */
+export class RollbackError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RollbackError'
+  }
+}

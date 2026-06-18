@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FastbootError, ImageError, LpError, TimeoutError, UsbError } from './errors'
+import { FastbootError, ImageError, LpError, RollbackError, TimeoutError, UsbError } from './errors'
 
 describe('FastbootError', () => {
   it('formats the message and exposes status/bootloaderMessage', () => {
@@ -24,7 +24,8 @@ describe('TimeoutError', () => {
 describe.each([
   ['ImageError', ImageError],
   ['LpError', LpError],
-  ['UsbError', UsbError]
+  ['UsbError', UsbError],
+  ['RollbackError', RollbackError]
 ])('%s', (name, Ctor) => {
   it('is an Error with the right name and message', () => {
     const err = new Ctor('boom')

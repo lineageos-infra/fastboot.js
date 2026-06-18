@@ -1,0 +1,21 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm format --check --no-write
+          pnpm lint
+          pnpm test

@@ -687,4 +687,25 @@ export class FastbootDevice {
       )
     }
   }
+
+  /**
+   * Erase the given partition.
+   *
+   * @param {string} partition - The name of the partition to erase.
+   * @throws {FastbootError}
+   */
+  async erase(partition: string) {
+    await this.runCommand(`erase:${partition}`)
+  }
+
+  /**
+   * Set the active boot slot.
+   *
+   * @param {string} slot - The slot to activate: 'a', 'b', or 'other'.
+   * @throws {FastbootError}
+   */
+  async setActiveSlot(slot: 'a' | 'b' | 'other') {
+    const target = slot === 'other' ? await this.getOtherSlot() : slot
+    await this.runCommand(`set_active:${target}`)
+  }
 }

@@ -8,6 +8,7 @@
     "repository": "https://github.com/lineageos-infra/fastboot.js",
     "author": "Danny Lin <danny@kdrag0n.dev>",
     "license": "MIT",
+    "packageManager": "pnpm@11.9.0",
     "dependencies": {
         "@zip.js/zip.js": "2.8.26"
     },
